@@ -1,0 +1,44 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tests, coverage and tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+
+# Local databases and generated data
+.data/
+*.db
+*.sqlite
+*.sqlite3
+data/raw/
+data/processed/
+
+# Editors, notebooks and operating systems
+.DS_Store
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Logs
+*.log
