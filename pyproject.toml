@@ -31,7 +31,7 @@ paper-rag = "paper_rag.cli:app"
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=paper_rag --cov-report=term-missing"
+addopts = "-q --cov=paper_rag --cov-report=term-missing --cov-fail-under=75"
 pythonpath = ["src"]
 testpaths = ["tests"]
 

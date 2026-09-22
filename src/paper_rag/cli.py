@@ -1,10 +1,14 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated
 
 import typer
 
 from paper_rag.bootstrap import build_container
+from paper_rag.evaluation.dataset import load_dataset
+from paper_rag.evaluation.runner import RetrievalEvaluator
 from paper_rag.infrastructure.parsers import parse_file
+from paper_rag.settings import Settings
 
 app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=True)
 
@@ -36,6 +40,37 @@ def ask(
         typer.echo("\nSources:")
         for index, citation in enumerate(answer.citations, start=1):
             typer.echo(f"[{index}] {citation.title} — {citation.source} ({citation.score:.3f})")
+
+
+@app.command()
+def evaluate(
+    dataset: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True),
+    ] = Path("evaluation/retrieval_baseline.json"),
+    top_k: Annotated[int, typer.Option(min=1, max=20)] = 3,
+    min_recall: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.0,
+    min_mrr: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.0,
+) -> None:
+    """Evaluate retrieval quality against a versioned dataset."""
+    evaluation_dataset = load_dataset(dataset)
+    with TemporaryDirectory(prefix="paper-rag-evaluation-") as directory:
+        container = build_container(Settings(database_path=Path(directory) / "evaluation.db"))
+        report = RetrievalEvaluator(
+            ingest_document=container.ingest_document,
+            retrieve_chunks=container.retrieve_chunks,
+        ).run(evaluation_dataset, top_k)
+
+    typer.echo(f"Cases: {len(report.cases)}")
+    typer.echo(f"Recall@{report.top_k}: {report.recall_at_k:.3f}")
+    typer.echo(f"MRR: {report.mean_reciprocal_rank:.3f}")
+
+    if not report.meets(min_recall, min_mrr):
+        typer.echo(
+            f"Gate failed: expected Recall@{top_k} >= {min_recall:.3f} and MRR >= {min_mrr:.3f}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command()

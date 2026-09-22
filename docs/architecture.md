@@ -10,6 +10,7 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 - `domain`: entidades e contratos que não dependem de FastAPI, SQLite ou provedores de LLM.
 - `application`: casos de uso de ingestão e consulta.
 - `infrastructure`: implementações substituíveis de parsing, embeddings, armazenamento e geração.
+- `evaluation`: dataset versionado, métricas e execução de avaliações do retrieval.
 - `api` e `cli`: portas de entrada para os mesmos casos de uso.
 - `bootstrap`: composição explícita das dependências.
 
@@ -23,6 +24,7 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 4. O domínio conhece protocolos, não bibliotecas de RAG. Isso permite comparar implementações sem
    reescrever os casos de uso.
 5. Docker fica fora do caminho de desenvolvimento. Poderá ser adicionado como opção de entrega.
+6. Recall@K e MRR formam a baseline automática que protege o retrieval contra regressões.
 
 ## Próximas decisões técnicas
 
@@ -30,5 +32,4 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 - busca vetorial versus híbrida;
 - reranking;
 - provedor de LLM e resposta fundamentada;
-- dataset e métricas de avaliação;
 - observabilidade, custo e latência.

@@ -21,6 +21,7 @@ python -m pip install -e ".[dev]"
 ```bash
 paper-rag ingest data/artigo.pdf
 paper-rag ask "Qual é a principal contribuição do artigo?"
+paper-rag evaluate evaluation/retrieval_baseline.json
 paper-rag serve
 ```
 
@@ -34,6 +35,6 @@ mypy src
 pytest
 ```
 
-O CI executa essas verificações em cada push e pull request. A evolução planejada é substituir os
-adaptadores locais por embeddings semânticos, busca híbrida, reranking e avaliação. As decisões de
-projeto estão em [`docs/architecture.md`](docs/architecture.md).
+O CI também bloqueia regressões na qualidade do retrieval. A evolução planejada inclui embeddings
+semânticos, busca híbrida e reranking. As decisões estão em
+[`docs/architecture.md`](docs/architecture.md).

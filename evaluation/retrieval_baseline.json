@@ -1,0 +1,51 @@
+{
+  "documents": [
+    {
+      "title": "Retrieval-Augmented Generation",
+      "source": "rag-overview",
+      "text": "Retrieval-augmented generation combines document retrieval with language generation. The retriever supplies external knowledge as evidence before the language model creates an answer grounded in that context."
+    },
+    {
+      "title": "Semantic Embeddings",
+      "source": "semantic-embeddings",
+      "text": "Embeddings represent text as dense numerical vectors. Semantic search compares vector similarity so that passages with related meanings can be retrieved even when their wording differs."
+    },
+    {
+      "title": "Document Chunking",
+      "source": "document-chunking",
+      "text": "Chunking divides long documents into smaller text segments. Overlap between adjacent chunks helps preserve context that would otherwise be lost at segment boundaries."
+    },
+    {
+      "title": "Retrieval Reranking",
+      "source": "retrieval-reranking",
+      "text": "A reranker receives candidates from the initial retrieval stage and reorders them using a more precise relevance model. This improves the ordering of evidence sent to the generator."
+    },
+    {
+      "title": "RAG Evaluation",
+      "source": "rag-evaluation",
+      "text": "Retrieval quality can be measured with Recall at K and Mean Reciprocal Rank. Recall checks whether relevant evidence was found, while reciprocal rank rewards placing the first relevant result near the top."
+    }
+  ],
+  "cases": [
+    {
+      "question": "How does retrieval-augmented generation use external knowledge?",
+      "relevant_sources": ["rag-overview"]
+    },
+    {
+      "question": "How are embeddings used for semantic search and vector similarity?",
+      "relevant_sources": ["semantic-embeddings"]
+    },
+    {
+      "question": "Why is overlap useful when splitting documents into chunks?",
+      "relevant_sources": ["document-chunking"]
+    },
+    {
+      "question": "What does a reranker do with the candidates returned by retrieval?",
+      "relevant_sources": ["retrieval-reranking"]
+    },
+    {
+      "question": "Which metrics measure retrieval quality and ranking position?",
+      "relevant_sources": ["rag-evaluation"]
+    }
+  ]
+}

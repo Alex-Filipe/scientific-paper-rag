@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
+from paper_rag.application.retrieve import RetrieveChunks
 from paper_rag.domain.models import Answer, Citation
-from paper_rag.domain.ports import AnswerGenerator, ChunkRepository, Embedder
+from paper_rag.domain.ports import AnswerGenerator
 
 
 @dataclass(slots=True)
 class AskQuestion:
-    embedder: Embedder
-    repository: ChunkRepository
+    retriever: RetrieveChunks
     generator: AnswerGenerator
     default_top_k: int = 4
 
@@ -19,8 +19,7 @@ class AskQuestion:
         if limit <= 0:
             raise ValueError("top_k must be positive")
 
-        query_embedding = self.embedder.embed([question])[0]
-        contexts = self.repository.search(query_embedding, limit)
+        contexts = self.retriever.execute(question, limit)
         text = self.generator.generate(question, contexts)
         citations = tuple(
             Citation(
