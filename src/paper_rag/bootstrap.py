@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from paper_rag.application.ask import AskQuestion
 from paper_rag.application.chunking import WordChunker
 from paper_rag.application.ingest import IngestDocument
-from paper_rag.application.retrieve import RetrieveChunks
+from paper_rag.application.retrieve import RetrievalMode, RetrieveChunks
 from paper_rag.infrastructure.embedder_factory import create_embedder
 from paper_rag.infrastructure.generation import ExtractiveAnswerGenerator
 from paper_rag.infrastructure.sqlite_repository import SQLiteChunkRepository
@@ -29,7 +29,11 @@ def build_container(settings: Settings | None = None) -> Container:
         resolved.database_path,
         embedding_space=configured_embedder.embedding_space,
     )
-    retriever = RetrieveChunks(embedder=embedder, repository=repository)
+    retriever = RetrieveChunks(
+        embedder=embedder,
+        repository=repository,
+        mode=RetrievalMode(resolved.retrieval_mode),
+    )
 
     return Container(
         ingest_document=IngestDocument(

@@ -33,13 +33,15 @@ execução) e selecione o mesmo backend ao ingerir e consultar:
 ```bash
 python -m pip install -e ".[semantic]"
 RAG_EMBEDDING_BACKEND=semantic paper-rag ingest data/artigo.pdf
-RAG_EMBEDDING_BACKEND=semantic paper-rag ask "Qual é a contribuição?"
-paper-rag evaluate evaluation/retrieval_paraphrases.json --embedding both
+RAG_EMBEDDING_BACKEND=semantic RAG_RETRIEVAL_MODE=hybrid paper-rag ask "Qual é a contribuição?"
+paper-rag evaluate evaluation/retrieval_paraphrases.json --embedding semantic --retrieval-mode both
 ```
 
 Hashing permanece como backend padrão e serve de referência. `--embedding both` mostra as métricas
-de cada método e a diferença entre eles. O modelo fica em `.data/models`; os vetores de cada método
-ficam isolados no SQLite.
+de cada embedder; `--retrieval-mode both` compara busca vetorial e híbrida. A busca híbrida combina
+BM25 do SQLite FTS5 com busca vetorial usando Reciprocal Rank Fusion (RRF) e é o padrão. Defina
+`RAG_RETRIEVAL_MODE=vector` para usar somente vetores. O modelo fica em `.data/models`; os vetores de
+cada método ficam isolados no SQLite.
 
 ## Qualidade
 
@@ -49,6 +51,6 @@ mypy src
 pytest
 ```
 
-O CI verifica o baseline lexical e bloqueia regressões com perguntas parafraseadas no backend
-semântico. As decisões estão em
+O CI bloqueia regressões tanto na busca vetorial quanto na híbrida, usando perguntas diretas e
+parafraseadas. As decisões estão em
 [`docs/architecture.md`](docs/architecture.md).

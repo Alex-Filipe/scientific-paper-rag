@@ -12,6 +12,7 @@ class Settings:
     embedding_backend: str = "hashing"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     model_cache_dir: Path = Path(".data/models")
+    retrieval_mode: str = "hybrid"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -26,4 +27,5 @@ class Settings:
                 "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             ),
             model_cache_dir=Path(os.getenv("RAG_MODEL_CACHE_DIR", ".data/models")),
+            retrieval_mode=os.getenv("RAG_RETRIEVAL_MODE", "hybrid"),
         )

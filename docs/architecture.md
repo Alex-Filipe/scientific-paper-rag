@@ -16,21 +16,22 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 
 ## Decisões iniciais
 
-1. SQLite armazena chunks e vetores, evitando um servidor local. A busca é linear e serve somente
-   como baseline para corpus pequeno.
+1. SQLite armazena chunks, vetores e o índice lexical FTS5, evitando um servidor local. A busca
+   vetorial percorre o corpus e serve como baseline para corpus pequeno.
 2. Hashing permanece como baseline sem dependências extras. FastEmbed é opcional e executa em CPU
    via ONNX Runtime com o modelo multilíngue `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`.
 3. Cada espaço de embeddings é identificado no SQLite para evitar comparar vetores incompatíveis.
    Artigos precisam ser ingeridos novamente quando se muda o backend.
-4. O gerador inicial é extrativo: apresenta evidências encontradas e não tenta inventar uma síntese.
-5. O domínio conhece protocolos, não bibliotecas de RAG. Isso permite comparar implementações sem
+4. A recuperação padrão é híbrida: combina ranking BM25 do FTS5 com ranking vetorial via Reciprocal
+   Rank Fusion. `RAG_RETRIEVAL_MODE=vector` mantém disponível o modo vetorial isolado.
+5. O gerador inicial é extrativo: apresenta evidências encontradas e não tenta inventar uma síntese.
+6. O domínio conhece protocolos, não bibliotecas de RAG. Isso permite comparar implementações sem
    reescrever os casos de uso.
-6. Docker fica fora do caminho de desenvolvimento. Poderá ser adicionado como opção de entrega.
-7. Recall@K e MRR formam a baseline automática que protege o retrieval contra regressões.
+7. Docker fica fora do caminho de desenvolvimento. Poderá ser adicionado como opção de entrega.
+8. Recall@K e MRR formam a baseline automática que protege o retrieval contra regressões.
 
 ## Próximas decisões técnicas
 
-- busca vetorial versus híbrida;
 - reranking;
 - provedor de LLM e resposta fundamentada;
 - observabilidade, custo e latência.

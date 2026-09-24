@@ -6,6 +6,59 @@ from contextlib import closing
 from pathlib import Path
 
 from paper_rag.domain.models import Chunk, RetrievedChunk
+from paper_rag.infrastructure.embeddings import TOKEN_PATTERN
+
+LEXICAL_STOP_WORDS = frozenset(
+    {
+        "a",
+        "as",
+        "ao",
+        "aos",
+        "com",
+        "da",
+        "das",
+        "de",
+        "do",
+        "dos",
+        "e",
+        "em",
+        "na",
+        "nas",
+        "no",
+        "nos",
+        "o",
+        "os",
+        "para",
+        "por",
+        "que",
+        "qual",
+        "quais",
+        "se",
+        "um",
+        "uma",
+        "the",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "from",
+        "with",
+        "by",
+        "is",
+        "are",
+        "was",
+        "were",
+        "how",
+        "what",
+        "which",
+        "when",
+        "where",
+        "why",
+    }
+)
 
 
 class SQLiteChunkRepository:
@@ -48,6 +101,43 @@ class SQLiteChunkRepository:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chunks_embedding_space ON chunks (embedding_space)"
             )
+            fts_exists = (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chunks_fts'"
+                ).fetchone()
+                is not None
+            )
+            connection.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                    chunk_id UNINDEXED,
+                    document_title,
+                    source,
+                    text,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                )
+                """
+            )
+            if not fts_exists:
+                stored_chunks = connection.execute(
+                    "SELECT id, document_title, source, text FROM chunks"
+                ).fetchall()
+                indexed_chunks = {
+                    stored_id.rsplit("::", maxsplit=1)[0]: (
+                        stored_id.rsplit("::", maxsplit=1)[0],
+                        title,
+                        source,
+                        text,
+                    )
+                    for stored_id, title, source, text in stored_chunks
+                }
+                connection.executemany(
+                    """
+                    INSERT INTO chunks_fts (chunk_id, document_title, source, text)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    list(indexed_chunks.values()),
+                )
             connection.commit()
 
     def add(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
@@ -77,7 +167,57 @@ class SQLiteChunkRepository:
                 """,
                 rows,
             )
+            connection.executemany(
+                "DELETE FROM chunks_fts WHERE chunk_id = ?",
+                [(chunk.id,) for chunk in chunks],
+            )
+            connection.executemany(
+                """
+                INSERT INTO chunks_fts (chunk_id, document_title, source, text)
+                VALUES (?, ?, ?, ?)
+                """,
+                [(chunk.id, chunk.document_title, chunk.source, chunk.text) for chunk in chunks],
+            )
             connection.commit()
+
+    def search_lexical(self, query: str, top_k: int) -> list[Chunk]:
+        if top_k <= 0:
+            return []
+
+        terms = dict.fromkeys(
+            token
+            for token in TOKEN_PATTERN.findall(query.casefold())
+            if token not in LEXICAL_STOP_WORDS
+        )
+        if not terms:
+            return []
+        match_query = " OR ".join(f'"{term}"' for term in terms)
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT c.id, c.document_id, c.document_title, c.source, c.position, c.text
+                FROM chunks_fts
+                JOIN chunks AS c
+                  ON c.id = chunks_fts.chunk_id || '::' || ?
+                WHERE chunks_fts MATCH ? AND c.embedding_space = ?
+                ORDER BY bm25(chunks_fts, 0.0, 2.0, 1.0, 1.0), c.position
+                LIMIT ?
+                """,
+                (self._embedding_space, match_query, self._embedding_space, top_k),
+            ).fetchall()
+
+        return [
+            Chunk(
+                id=row[0].removesuffix(f"::{self._embedding_space}"),
+                document_id=row[1],
+                document_title=row[2],
+                source=row[3],
+                position=row[4],
+                text=row[5],
+            )
+            for row in rows
+        ]
 
     def search(self, query_embedding: Sequence[float], top_k: int) -> list[RetrievedChunk]:
         with closing(self._connect()) as connection:

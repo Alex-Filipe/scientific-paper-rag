@@ -16,6 +16,9 @@ class ChunkRepository(Protocol):
     def search(self, query_embedding: Sequence[float], top_k: int) -> list[RetrievedChunk]:
         """Return the most relevant chunks, ordered by descending score."""
 
+    def search_lexical(self, query: str, top_k: int) -> list[Chunk]:
+        """Return chunks ordered by lexical relevance."""
+
 
 class AnswerGenerator(Protocol):
     def generate(self, question: str, contexts: Sequence[RetrievedChunk]) -> str:

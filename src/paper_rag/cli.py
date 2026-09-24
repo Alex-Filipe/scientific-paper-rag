@@ -8,6 +8,7 @@ import typer
 
 from paper_rag.bootstrap import build_container
 from paper_rag.evaluation.dataset import load_dataset
+from paper_rag.evaluation.models import RetrievalReport
 from paper_rag.evaluation.runner import RetrievalEvaluator
 from paper_rag.infrastructure.parsers import parse_file
 from paper_rag.settings import Settings
@@ -18,6 +19,12 @@ app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=Tr
 class EvaluationEmbedding(StrEnum):
     HASHING = "hashing"
     SEMANTIC = "semantic"
+    BOTH = "both"
+
+
+class EvaluationRetrieval(StrEnum):
+    VECTOR = "vector"
+    HYBRID = "hybrid"
     BOTH = "both"
 
 
@@ -60,48 +67,71 @@ def evaluate(
         EvaluationEmbedding,
         typer.Option(help="Embedding backend to evaluate; use 'both' to compare."),
     ] = EvaluationEmbedding.HASHING,
+    retrieval_mode: Annotated[
+        EvaluationRetrieval,
+        typer.Option(help="Retrieval mode to evaluate; use 'both' to compare."),
+    ] = EvaluationRetrieval.VECTOR,
     top_k: Annotated[int, typer.Option(min=1, max=20)] = 3,
     min_recall: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.0,
     min_mrr: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.0,
 ) -> None:
-    """Evaluate retrieval or compare hashing with semantic embeddings."""
+    """Evaluate retrieval or compare embedding and search strategies."""
     evaluation_dataset = load_dataset(dataset)
     configured = Settings.from_environment()
     backends = (
         ("hashing", "semantic") if embedding is EvaluationEmbedding.BOTH else (embedding.value,)
     )
-    reports = {}
+    modes = (
+        ("vector", "hybrid")
+        if retrieval_mode is EvaluationRetrieval.BOTH
+        else (retrieval_mode.value,)
+    )
+    reports: dict[str, RetrievalReport] = {}
     with TemporaryDirectory(prefix="paper-rag-evaluation-") as directory:
         for backend in backends:
-            run_settings = replace(
-                configured,
-                database_path=Path(directory) / f"{backend}.db",
-                embedding_backend=backend,
-            )
-            container = build_container(run_settings)
-            reports[backend] = RetrievalEvaluator(
-                ingest_document=container.ingest_document,
-                retrieve_chunks=container.retrieve_chunks,
-            ).run(evaluation_dataset, top_k)
+            for mode in modes:
+                label = f"{backend}/{mode}"
+                run_settings = replace(
+                    configured,
+                    database_path=Path(directory) / f"{backend}-{mode}.db",
+                    embedding_backend=backend,
+                    retrieval_mode=mode,
+                )
+                container = build_container(run_settings)
+                reports[label] = RetrievalEvaluator(
+                    ingest_document=container.ingest_document,
+                    retrieve_chunks=container.retrieve_chunks,
+                ).run(evaluation_dataset, top_k)
 
-    for backend, report in reports.items():
-        typer.echo(f"[{backend}]")
+    for label, report in reports.items():
+        typer.echo(f"[{label}]")
         typer.echo(f"Cases: {len(report.cases)}")
         typer.echo(f"Recall@{report.top_k}: {report.recall_at_k:.3f}")
         typer.echo(f"MRR: {report.mean_reciprocal_rank:.3f}")
 
-    if "hashing" in reports and "semantic" in reports:
-        hashing_report = reports["hashing"]
-        semantic_report = reports["semantic"]
-        typer.echo(
-            "Delta semantic - hashing: "
-            f"Recall@{top_k} {semantic_report.recall_at_k - hashing_report.recall_at_k:+.3f}; "
-            f"MRR {semantic_report.mean_reciprocal_rank - hashing_report.mean_reciprocal_rank:+.3f}"
-        )
+    if retrieval_mode is EvaluationRetrieval.BOTH:
+        for backend in backends:
+            vector_report = reports[f"{backend}/vector"]
+            hybrid_report = reports[f"{backend}/hybrid"]
+            recall_delta = hybrid_report.recall_at_k - vector_report.recall_at_k
+            mrr_delta = hybrid_report.mean_reciprocal_rank - vector_report.mean_reciprocal_rank
+            typer.echo(
+                f"Delta hybrid - vector ({backend}): "
+                f"Recall@{top_k} {recall_delta:+.3f}; MRR {mrr_delta:+.3f}"
+            )
 
-    failures = [
-        backend for backend, report in reports.items() if not report.meets(min_recall, min_mrr)
-    ]
+    if embedding is EvaluationEmbedding.BOTH:
+        for mode in modes:
+            hashing_report = reports[f"hashing/{mode}"]
+            semantic_report = reports[f"semantic/{mode}"]
+            recall_delta = semantic_report.recall_at_k - hashing_report.recall_at_k
+            mrr_delta = semantic_report.mean_reciprocal_rank - hashing_report.mean_reciprocal_rank
+            typer.echo(
+                f"Delta semantic - hashing ({mode}): "
+                f"Recall@{top_k} {recall_delta:+.3f}; MRR {mrr_delta:+.3f}"
+            )
+
+    failures = [label for label, report in reports.items() if not report.meets(min_recall, min_mrr)]
     if failures:
         typer.echo(
             f"Gate failed for {', '.join(failures)}: expected "

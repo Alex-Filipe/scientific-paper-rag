@@ -28,6 +28,25 @@ def test_evaluate_command_passes_baseline() -> None:
     assert "MRR:" in result.stdout
 
 
+def test_evaluate_command_compares_vector_and_hybrid_search() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "evaluate",
+            "evaluation/retrieval_baseline.json",
+            "--embedding",
+            "hashing",
+            "--retrieval-mode",
+            "both",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "[hashing/vector]" in result.stdout
+    assert "[hashing/hybrid]" in result.stdout
+    assert "Delta hybrid - vector (hashing)" in result.stdout
+
+
 def test_evaluate_command_fails_quality_gate(tmp_path: Path) -> None:
     dataset = {
         "documents": [
