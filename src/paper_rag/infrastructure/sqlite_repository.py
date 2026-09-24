@@ -71,7 +71,8 @@ class SQLiteChunkRepository:
             connection.executemany(
                 """
                 INSERT OR REPLACE INTO chunks
-                    (id, document_id, document_title, source, position, text, embedding, embedding_space)
+                    (id, document_id, document_title, source, position, text, embedding,
+                     embedding_space)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,

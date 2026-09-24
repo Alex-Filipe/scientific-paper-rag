@@ -47,3 +47,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.11"
 strict = true
 files = ["src/paper_rag"]
+follow_imports_for_stubs = true
+
+[[tool.mypy.overrides]]
+module = ["fastembed", "fastembed.*", "numpy", "numpy.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

@@ -22,7 +22,7 @@ class FastEmbedder:
     def _load_model(self) -> Any:
         if self._model is None:
             try:
-                from fastembed import TextEmbedding  # type: ignore[import-not-found]
+                from fastembed import TextEmbedding
             except ImportError as error:
                 raise RuntimeError(
                     "Semantic embeddings require the optional dependency. "

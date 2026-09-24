@@ -1,5 +1,5 @@
 from dataclasses import replace
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
@@ -15,7 +15,7 @@ from paper_rag.settings import Settings
 app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=True)
 
 
-class EvaluationEmbedding(str, Enum):
+class EvaluationEmbedding(StrEnum):
     HASHING = "hashing"
     SEMANTIC = "semantic"
     BOTH = "both"
