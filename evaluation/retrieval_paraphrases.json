@@ -1,0 +1,51 @@
+{
+  "documents": [
+    {
+      "title": "Retrieval-Augmented Generation",
+      "source": "rag-overview",
+      "text": "Retrieval-augmented generation combines document retrieval with language generation. The retriever supplies external knowledge as evidence before the language model creates an answer grounded in that context."
+    },
+    {
+      "title": "Semantic Embeddings",
+      "source": "semantic-embeddings",
+      "text": "Embeddings represent text as dense numerical vectors. Semantic search compares vector similarity so that passages with related meanings can be retrieved even when their wording differs."
+    },
+    {
+      "title": "Document Chunking",
+      "source": "document-chunking",
+      "text": "Chunking divides long documents into smaller text segments. Overlap between adjacent chunks helps preserve context that would otherwise be lost at segment boundaries."
+    },
+    {
+      "title": "Retrieval Reranking",
+      "source": "retrieval-reranking",
+      "text": "A reranker receives candidates from the initial retrieval stage and reorders them using a more precise relevance model. This improves the ordering of evidence sent to the generator."
+    },
+    {
+      "title": "RAG Evaluation",
+      "source": "rag-evaluation",
+      "text": "Retrieval quality can be measured with Recall at K and Mean Reciprocal Rank. Recall checks whether relevant evidence was found, while reciprocal rank rewards placing the first relevant result near the top."
+    }
+  ],
+  "cases": [
+    {
+      "question": "Qual abordagem consulta conhecimento externo antes de redigir a resposta?",
+      "relevant_sources": ["rag-overview"]
+    },
+    {
+      "question": "Que representação numérica ajuda a localizar textos com significado parecido?",
+      "relevant_sources": ["semantic-embeddings"]
+    },
+    {
+      "question": "O que ajuda a preservar o contexto nas fronteiras ao dividir um texto longo?",
+      "relevant_sources": ["document-chunking"]
+    },
+    {
+      "question": "Qual etapa reorganiza os candidatos para colocar a evidência mais pertinente no topo?",
+      "relevant_sources": ["retrieval-reranking"]
+    },
+    {
+      "question": "Quais métricas avaliam a presença dos resultados certos e a posição em que aparecem?",
+      "relevant_sources": ["rag-evaluation"]
+    }
+  ]
+}

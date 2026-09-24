@@ -4,7 +4,7 @@ from paper_rag.application.ask import AskQuestion
 from paper_rag.application.chunking import WordChunker
 from paper_rag.application.ingest import IngestDocument
 from paper_rag.application.retrieve import RetrieveChunks
-from paper_rag.infrastructure.embeddings import HashingEmbedder
+from paper_rag.infrastructure.embedder_factory import create_embedder
 from paper_rag.infrastructure.generation import ExtractiveAnswerGenerator
 from paper_rag.infrastructure.sqlite_repository import SQLiteChunkRepository
 from paper_rag.settings import Settings
@@ -19,8 +19,16 @@ class Container:
 
 def build_container(settings: Settings | None = None) -> Container:
     resolved = settings or Settings.from_environment()
-    embedder = HashingEmbedder()
-    repository = SQLiteChunkRepository(resolved.database_path)
+    configured_embedder = create_embedder(
+        backend=resolved.embedding_backend,
+        model_name=resolved.embedding_model,
+        cache_dir=resolved.model_cache_dir,
+    )
+    embedder = configured_embedder.embedder
+    repository = SQLiteChunkRepository(
+        resolved.database_path,
+        embedding_space=configured_embedder.embedding_space,
+    )
     retriever = RetrieveChunks(embedder=embedder, repository=repository)
 
     return Container(

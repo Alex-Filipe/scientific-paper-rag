@@ -11,9 +11,10 @@ from paper_rag.domain.models import Chunk, RetrievedChunk
 class SQLiteChunkRepository:
     """Persistent local baseline. Similarity is computed in memory for small corpora."""
 
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, embedding_space: str = "hashing-v1") -> None:
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._database_path = database_path
+        self._embedding_space = embedding_space
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -30,9 +31,22 @@ class SQLiteChunkRepository:
                     source TEXT NOT NULL,
                     position INTEGER NOT NULL,
                     text TEXT NOT NULL,
-                    embedding TEXT NOT NULL
+                    embedding TEXT NOT NULL,
+                    embedding_space TEXT NOT NULL DEFAULT 'hashing-v1'
                 )
                 """
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(chunks)").fetchall()}
+            if "embedding_space" not in columns:
+                connection.execute(
+                    "ALTER TABLE chunks ADD COLUMN embedding_space "
+                    "TEXT NOT NULL DEFAULT 'hashing-v1'"
+                )
+                connection.execute(
+                    "UPDATE chunks SET id = id || '::hashing-v1' WHERE id NOT LIKE '%::hashing-v1'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_embedding_space ON chunks (embedding_space)"
             )
             connection.commit()
 
@@ -42,13 +56,14 @@ class SQLiteChunkRepository:
 
         rows = [
             (
-                chunk.id,
+                f"{chunk.id}::{self._embedding_space}",
                 chunk.document_id,
                 chunk.document_title,
                 chunk.source,
                 chunk.position,
                 chunk.text,
                 json.dumps(list(embedding)),
+                self._embedding_space,
             )
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
@@ -56,8 +71,8 @@ class SQLiteChunkRepository:
             connection.executemany(
                 """
                 INSERT OR REPLACE INTO chunks
-                    (id, document_id, document_title, source, position, text, embedding)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, document_id, document_title, source, position, text, embedding, embedding_space)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -69,14 +84,16 @@ class SQLiteChunkRepository:
                 """
                 SELECT id, document_id, document_title, source, position, text, embedding
                 FROM chunks
-                """
+                WHERE embedding_space = ?
+                """,
+                (self._embedding_space,),
             ).fetchall()
 
         results = []
         for row in rows:
             stored_embedding = json.loads(row[6])
             chunk = Chunk(
-                id=row[0],
+                id=row[0].removesuffix(f"::{self._embedding_space}"),
                 document_id=row[1],
                 document_title=row[2],
                 source=row[3],

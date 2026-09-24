@@ -9,6 +9,9 @@ class Settings:
     chunk_size: int = 220
     chunk_overlap: int = 40
     top_k: int = 4
+    embedding_backend: str = "hashing"
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    model_cache_dir: Path = Path(".data/models")
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -17,4 +20,10 @@ class Settings:
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "220")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "40")),
             top_k=int(os.getenv("RAG_TOP_K", "4")),
+            embedding_backend=os.getenv("RAG_EMBEDDING_BACKEND", "hashing"),
+            embedding_model=os.getenv(
+                "RAG_EMBEDDING_MODEL",
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            ),
+            model_cache_dir=Path(os.getenv("RAG_MODEL_CACHE_DIR", ".data/models")),
         )
