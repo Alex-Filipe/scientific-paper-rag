@@ -48,7 +48,7 @@ def ask(
     question: Annotated[str, typer.Argument(help="Question about the indexed papers.")],
     top_k: Annotated[int | None, typer.Option(min=1, max=20)] = None,
 ) -> None:
-    """Ask a question and print the retrieved evidence."""
+    """Ask a question and print the answer with its retrieved sources."""
     answer = build_container().ask_question.execute(question, top_k)
     typer.echo(answer.text)
     if answer.citations:

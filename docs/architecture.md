@@ -24,7 +24,9 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
    Artigos precisam ser ingeridos novamente quando se muda o backend.
 4. A recuperação padrão é híbrida: combina ranking BM25 do FTS5 com ranking vetorial via Reciprocal
    Rank Fusion. `RAG_RETRIEVAL_MODE=vector` mantém disponível o modo vetorial isolado.
-5. O gerador inicial é extrativo: apresenta evidências encontradas e não tenta inventar uma síntese.
+5. O gerador extrativo é o padrão local. Um gerador OpenAI opcional usa a Responses API para sintetizar
+   respostas apenas com os trechos recuperados, exige citações válidas e abstém quando não há evidência.
+   A chave permanece em `OPENAI_API_KEY`; nunca é salva nas configurações nem no banco.
 6. O domínio conhece protocolos, não bibliotecas de RAG. Isso permite comparar implementações sem
    reescrever os casos de uso.
 7. Docker fica fora do caminho de desenvolvimento. Poderá ser adicionado como opção de entrega.
@@ -33,5 +35,4 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 ## Próximas decisões técnicas
 
 - reranking;
-- provedor de LLM e resposta fundamentada;
 - observabilidade, custo e latência.

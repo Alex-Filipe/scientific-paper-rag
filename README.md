@@ -1,7 +1,7 @@
 # Scientific Paper RAG
 
-RAG backend para consultar artigos científicos com respostas e citações rastreáveis. Funciona
-localmente, sem Docker, serviços externos ou chave de API.
+RAG backend para consultar artigos científicos com respostas e citações rastreáveis. O modo
+extrativo roda localmente sem Docker, serviço externo ou chave de API; a síntese com LLM é opcional.
 
 ```text
 documento -> parsing -> chunks -> embeddings -> SQLite
@@ -54,3 +54,19 @@ pytest
 O CI bloqueia regressões tanto na busca vetorial quanto na híbrida, usando perguntas diretas e
 parafraseadas. As decisões estão em
 [`docs/architecture.md`](docs/architecture.md).
+
+## Síntese com LLM (opcional)
+
+O padrão `extractive` lista as evidências sem chamar um serviço externo. Para gerar uma resposta
+sintetizada e fundamentada, instale o SDK opcional e configure a chave da API no ambiente; o uso da
+API pode gerar custos:
+
+```bash
+python -m pip install -e ".[openai]"
+export OPENAI_API_KEY="sua-chave"
+RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
+  paper-rag ask "Qual é a principal contribuição do artigo?"
+```
+
+As respostas devem citar os trechos como `[1]`, `[2]` etc. Se o modelo não fornecer citações válidas,
+o sistema volta a exibir as evidências, em vez de mostrar uma síntese sem referências.

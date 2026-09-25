@@ -24,6 +24,7 @@ dev = [
   "ruff>=0.9,<1.0",
 ]
 semantic = ["fastembed>=0.8,<0.9"]
+openai = ["openai>=1.100,<3.0"]
 
 [project.scripts]
 paper-rag = "paper_rag.cli:app"

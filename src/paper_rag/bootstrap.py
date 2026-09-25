@@ -5,7 +5,7 @@ from paper_rag.application.chunking import WordChunker
 from paper_rag.application.ingest import IngestDocument
 from paper_rag.application.retrieve import RetrievalMode, RetrieveChunks
 from paper_rag.infrastructure.embedder_factory import create_embedder
-from paper_rag.infrastructure.generation import ExtractiveAnswerGenerator
+from paper_rag.infrastructure.generation import create_answer_generator
 from paper_rag.infrastructure.sqlite_repository import SQLiteChunkRepository
 from paper_rag.settings import Settings
 
@@ -44,7 +44,7 @@ def build_container(settings: Settings | None = None) -> Container:
         retrieve_chunks=retriever,
         ask_question=AskQuestion(
             retriever=retriever,
-            generator=ExtractiveAnswerGenerator(),
+            generator=create_answer_generator(resolved.generation_backend, resolved.openai_model),
             default_top_k=resolved.top_k,
         ),
     )

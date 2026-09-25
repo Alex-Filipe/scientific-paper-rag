@@ -13,6 +13,8 @@ class Settings:
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     model_cache_dir: Path = Path(".data/models")
     retrieval_mode: str = "hybrid"
+    generation_backend: str = "extractive"
+    openai_model: str = "gpt-6-astra"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -28,4 +30,6 @@ class Settings:
             ),
             model_cache_dir=Path(os.getenv("RAG_MODEL_CACHE_DIR", ".data/models")),
             retrieval_mode=os.getenv("RAG_RETRIEVAL_MODE", "hybrid"),
+            generation_backend=os.getenv("RAG_GENERATION_BACKEND", "extractive"),
+            openai_model=os.getenv("RAG_OPENAI_MODEL", "gpt-6-astra"),
         )
