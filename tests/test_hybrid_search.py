@@ -2,9 +2,9 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from paper_rag.application.ranking import ReciprocalRankFusion
-from paper_rag.domain.models import Chunk
-from paper_rag.infrastructure.sqlite_repository import SQLiteChunkRepository
+from paper_rag.adapters.storage import SQLiteChunkRepository
+from paper_rag.core.contracts import Chunk
+from paper_rag.core.retrieval import ReciprocalRankFusion
 
 
 def make_chunk(chunk_id: str, text: str, position: int = 0) -> Chunk:

@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 
-from paper_rag.application.retrieve import RetrieveChunks
-from paper_rag.domain.models import Answer, Citation
-from paper_rag.domain.ports import AnswerGenerator
+from paper_rag.core.contracts import Answer, AnswerGenerator, Citation
+from paper_rag.core.retrieval import RetrieveChunks
 
 
 @dataclass(slots=True)

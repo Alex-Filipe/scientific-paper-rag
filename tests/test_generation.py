@@ -2,13 +2,13 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from paper_rag.domain.models import Chunk, RetrievedChunk
-from paper_rag.infrastructure.generation import (
+from paper_rag.adapters.generation import (
     ABSTENTION_ANSWER,
     ExtractiveAnswerGenerator,
     OpenAIAnswerGenerator,
     create_answer_generator,
 )
+from paper_rag.core.contracts import Chunk, RetrievedChunk
 from paper_rag.settings import Settings
 
 

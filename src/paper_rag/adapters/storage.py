@@ -5,8 +5,8 @@ from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 
-from paper_rag.domain.models import Chunk, RetrievedChunk
-from paper_rag.infrastructure.embeddings import TOKEN_PATTERN
+from paper_rag.adapters.embeddings import TOKEN_PATTERN
+from paper_rag.core.contracts import Chunk, RetrievedChunk
 
 LEXICAL_STOP_WORDS = frozenset(
     {

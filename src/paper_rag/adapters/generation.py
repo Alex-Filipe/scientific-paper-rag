@@ -6,7 +6,7 @@ from enum import StrEnum
 from importlib import import_module
 from typing import Protocol, cast
 
-from paper_rag.domain.models import RetrievedChunk
+from paper_rag.core.contracts import RetrievedChunk
 
 ABSTENTION_ANSWER = "Não encontrei evidências suficientes no corpus para responder à pergunta."
 

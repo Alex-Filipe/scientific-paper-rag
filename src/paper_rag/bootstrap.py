@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 
-from paper_rag.application.ask import AskQuestion
-from paper_rag.application.chunking import WordChunker
-from paper_rag.application.ingest import IngestDocument
-from paper_rag.application.retrieve import RetrievalMode, RetrieveChunks
-from paper_rag.infrastructure.embedder_factory import create_embedder
-from paper_rag.infrastructure.generation import create_answer_generator
-from paper_rag.infrastructure.sqlite_repository import SQLiteChunkRepository
+from paper_rag.adapters.embeddings import create_embedder
+from paper_rag.adapters.generation import create_answer_generator
+from paper_rag.adapters.storage import SQLiteChunkRepository
+from paper_rag.core.ask import AskQuestion
+from paper_rag.core.ingest import IngestDocument, WordChunker
+from paper_rag.core.retrieval import RetrievalMode, RetrieveChunks
 from paper_rag.settings import Settings
 
 

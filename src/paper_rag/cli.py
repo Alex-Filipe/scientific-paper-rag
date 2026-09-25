@@ -6,11 +6,11 @@ from typing import Annotated
 
 import typer
 
+from paper_rag.adapters.parsing import parse_file
 from paper_rag.bootstrap import build_container
 from paper_rag.evaluation.dataset import load_dataset
 from paper_rag.evaluation.models import RetrievalReport
 from paper_rag.evaluation.runner import RetrievalEvaluator
-from paper_rag.infrastructure.parsers import parse_file
 from paper_rag.settings import Settings
 
 app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=True)

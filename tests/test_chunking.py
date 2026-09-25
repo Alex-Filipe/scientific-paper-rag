@@ -1,5 +1,5 @@
-from paper_rag.application.chunking import WordChunker
-from paper_rag.domain.models import Document
+from paper_rag.core.contracts import Document
+from paper_rag.core.ingest import WordChunker
 
 
 def test_chunker_preserves_overlap() -> None:

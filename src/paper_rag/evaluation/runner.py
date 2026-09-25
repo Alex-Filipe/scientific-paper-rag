@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from statistics import fmean
 
-from paper_rag.application.ingest import IngestDocument
-from paper_rag.application.retrieve import RetrieveChunks
+from paper_rag.core.ingest import IngestDocument
+from paper_rag.core.retrieval import RetrieveChunks
 from paper_rag.evaluation.metrics import recall_at_k, reciprocal_rank
 from paper_rag.evaluation.models import CaseResult, RetrievalDataset, RetrievalReport
 
