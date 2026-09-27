@@ -18,6 +18,9 @@ class Container:
 
 def build_container(settings: Settings | None = None) -> Container:
     resolved = settings or Settings.from_environment()
+    generation_model = (
+        resolved.ollama_model if resolved.generation_backend == "ollama" else resolved.openai_model
+    )
     configured_embedder = create_embedder(
         backend=resolved.embedding_backend,
         model_name=resolved.embedding_model,
@@ -43,7 +46,11 @@ def build_container(settings: Settings | None = None) -> Container:
         retrieve_chunks=retriever,
         ask_question=AskQuestion(
             retriever=retriever,
-            generator=create_answer_generator(resolved.generation_backend, resolved.openai_model),
+            generator=create_answer_generator(
+                resolved.generation_backend,
+                generation_model,
+                ollama_base_url=resolved.ollama_base_url,
+            ),
             default_top_k=resolved.top_k,
         ),
     )

@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from paper_rag.adapters.generation import OllamaAnswerGenerator, OllamaHTTPClient
 from paper_rag.bootstrap import build_container
 from paper_rag.settings import Settings
 
@@ -36,3 +39,22 @@ def test_question_without_documents_has_no_citations(tmp_path: Path) -> None:
 
     assert not answer.citations
     assert "não encontrei" in answer.text.lower()
+
+
+def test_container_selects_ollama_without_openai_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    container = build_container(
+        Settings(
+            database_path=tmp_path / "ollama.db",
+            generation_backend="ollama",
+            ollama_model="qwen2.5:1.5b-instruct",
+        )
+    )
+
+    generator = container.ask_question.generator
+    assert isinstance(generator, OllamaAnswerGenerator)
+    assert generator.model == "qwen2.5:1.5b-instruct"
+    assert isinstance(generator.client, OllamaHTTPClient)
+    assert generator.client.base_url == "http://localhost:11434"

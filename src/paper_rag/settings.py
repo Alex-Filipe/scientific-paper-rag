@@ -15,6 +15,8 @@ class Settings:
     retrieval_mode: str = "hybrid"
     generation_backend: str = "extractive"
     openai_model: str = "gpt-6-astra"
+    ollama_model: str = "qwen2.5:1.5b-instruct"
+    ollama_base_url: str = "http://localhost:11434"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -32,4 +34,6 @@ class Settings:
             retrieval_mode=os.getenv("RAG_RETRIEVAL_MODE", "hybrid"),
             generation_backend=os.getenv("RAG_GENERATION_BACKEND", "extractive"),
             openai_model=os.getenv("RAG_OPENAI_MODEL", "gpt-6-astra"),
+            ollama_model=os.getenv("RAG_OLLAMA_MODEL", "qwen2.5:1.5b-instruct"),
+            ollama_base_url=os.getenv("RAG_OLLAMA_BASE_URL", "http://localhost:11434"),
         )

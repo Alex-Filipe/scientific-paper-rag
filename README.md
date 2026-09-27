@@ -57,9 +57,19 @@ parafraseadas. As decisões estão em
 
 ## Síntese com LLM (opcional)
 
-O padrão `extractive` lista as evidências sem chamar um serviço externo. Para gerar uma resposta
-sintetizada e fundamentada, instale o SDK opcional e configure a chave da API no ambiente; o uso da
-API pode gerar custos:
+O padrão `extractive` lista as evidências sem chamar um serviço externo. Para usar um modelo local,
+instale o [Ollama](https://ollama.com), inicie o serviço e baixe um modelo pequeno:
+
+```bash
+ollama pull qwen2.5:1.5b-instruct
+RAG_GENERATION_BACKEND=ollama RAG_OLLAMA_MODEL=qwen2.5:1.5b-instruct \
+  paper-rag ask "Qual é a principal contribuição do artigo?"
+```
+
+Se o serviço não iniciar pelo aplicativo, rode `ollama serve` em outro terminal.
+
+O backend `ollama` não exige chave nem dependência Python extra. Para usar a API da OpenAI, instale o
+SDK opcional e configure a chave no ambiente; o uso da API pode gerar custos:
 
 ```bash
 python -m pip install -e ".[openai]"
