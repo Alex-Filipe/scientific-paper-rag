@@ -9,7 +9,7 @@ processo reduz o custo operacional, enquanto módulos e interfaces preservam lim
 
 - `core`: modelos, contratos e fluxo principal — ingestão, busca e perguntas.
 - `adapters`: integrações concretas de parsing, embeddings, armazenamento e geração.
-- `evaluation`: dataset versionado, métricas e execução de avaliações do retrieval.
+- `evaluation`: datasets versionados, métricas e execução de avaliações de retrieval e geração.
 - `api` e `cli`: portas de entrada para os mesmos casos de uso.
 - `bootstrap`: composição explícita das dependências.
 
@@ -33,15 +33,15 @@ Para aprender o fluxo, comece por `core/ingest.py` (documento até banco) e depo
    permitindo trocar tecnologias sem reescrever o fluxo principal.
 7. Docker fica fora do caminho de desenvolvimento. Poderá ser adicionado como opção de entrega.
 8. Recall@K e MRR formam a baseline automática que protege o retrieval contra regressões.
+9. A baseline de geração é manual e determinística: verifica fatos esperados, validade e suporte das
+   citações e abstenção. Ela é uma triagem reprodutível, não substitui avaliação semântica humana.
 
 ## Próximas melhorias planejadas
 
 Estas melhorias ainda não estão implementadas; a ordem pode mudar conforme os testes e o uso do
 projeto:
 
-1. Criar avaliação de geração com respostas de referência, medindo fidelidade às evidências,
-   relevância, suporte das citações e comportamento de abstinência.
-2. Avaliar um reranker para reordenar os trechos recuperados antes de enviá-los ao gerador.
-3. Testar robustez contra prompt injection em documentos e, se houver múltiplos usuários, filtrar
+1. Avaliar um reranker para reordenar os trechos recuperados antes de enviá-los ao gerador.
+2. Testar robustez contra prompt injection em documentos e, se houver múltiplos usuários, filtrar
    documentos por permissões antes da recuperação.
-4. Adicionar observabilidade de latência, erros, tokens e custo por consulta.
+3. Adicionar observabilidade de latência, erros, tokens e custo por consulta.

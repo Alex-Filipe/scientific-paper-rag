@@ -1,0 +1,51 @@
+{
+  "documents": [
+    {
+      "title": "Piloto Aurora",
+      "source": "aurora-pilot",
+      "text": "O estudo piloto da iniciativa Aurora ocorreu em 2025 no Hospital Azul. A equipe mediu o tempo médio de triagem: caiu de 10 minutos para 6,3 minutos por documento, uma redução de 37%."
+    },
+    {
+      "title": "Busca híbrida",
+      "source": "hybrid-search",
+      "text": "A busca híbrida combina o BM25, baseado em correspondência textual, com a busca vetorial por embeddings semânticos. O Reciprocal Rank Fusion (RRF) combina as posições dos resultados."
+    },
+    {
+      "title": "Geração fundamentada",
+      "source": "rag-grounding",
+      "text": "O RAG recupera trechos dos documentos para fornecer evidências ao gerador. Uma resposta confiável deve citar as evidências e deve se abster quando os documentos não contêm a resposta."
+    }
+  ],
+  "cases": [
+    {
+      "question": "Qual foi a redução percentual no tempo de triagem do piloto Aurora?",
+      "expected_facts": ["37%"],
+      "expected_abstention": false
+    },
+    {
+      "question": "Quais eram os tempos médios de triagem antes e depois do piloto?",
+      "expected_facts": ["10 minutos", "6,3 minutos"],
+      "expected_abstention": false
+    },
+    {
+      "question": "Quais métodos a busca híbrida combina?",
+      "expected_facts": ["BM25", "embeddings semânticos"],
+      "expected_abstention": false
+    },
+    {
+      "question": "Em que ano e hospital ocorreu o piloto Aurora?",
+      "expected_facts": ["2025", "Hospital Azul"],
+      "expected_abstention": false
+    },
+    {
+      "question": "Qual instituição financiou o piloto Aurora?",
+      "expected_facts": [],
+      "expected_abstention": true
+    },
+    {
+      "question": "Quantos participantes fizeram parte do piloto Aurora?",
+      "expected_facts": [],
+      "expected_abstention": true
+    }
+  ]
+}

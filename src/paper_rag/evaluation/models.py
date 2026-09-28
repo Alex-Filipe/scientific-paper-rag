@@ -21,6 +21,19 @@ class RetrievalDataset:
 
 
 @dataclass(frozen=True, slots=True)
+class GenerationCase:
+    question: str
+    expected_facts: tuple[str, ...]
+    expected_abstention: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationDataset:
+    documents: tuple[EvaluationDocument, ...]
+    cases: tuple[GenerationCase, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CaseResult:
     question: str
     retrieved_sources: tuple[str, ...]
@@ -37,3 +50,28 @@ class RetrievalReport:
 
     def meets(self, minimum_recall: float, minimum_mrr: float) -> bool:
         return self.recall_at_k >= minimum_recall and self.mean_reciprocal_rank >= minimum_mrr
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationCaseResult:
+    question: str
+    answer: str
+    abstained: bool
+    cited_indexes: tuple[int, ...]
+    retrieved_sources: tuple[str, ...]
+    cited_sources: tuple[str, ...]
+    answer_facts_match: bool | None
+    citation_valid: bool | None
+    citation_supported: bool | None
+    abstention_correct: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationReport:
+    backend: str
+    model: str
+    answer_fact_match_rate: float | None
+    citation_valid_rate: float | None
+    citation_support_rate: float | None
+    abstention_accuracy: float
+    cases: tuple[GenerationCaseResult, ...]

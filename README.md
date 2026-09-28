@@ -55,6 +55,17 @@ O CI bloqueia regressões tanto na busca vetorial quanto na híbrida, usando per
 parafraseadas. As decisões estão em
 [`docs/architecture.md`](docs/architecture.md).
 
+Para avaliar respostas com Ollama, configure o backend e rode o conjunto pequeno de geração:
+
+```bash
+RAG_GENERATION_BACKEND=ollama RAG_OLLAMA_MODEL=qwen2.5:1.5b-instruct \
+  paper-rag evaluate-generation
+```
+
+O relatório verifica fatos esperados, índices de citação, presença dos fatos nos trechos citados e
+abstenção. São verificações lexicais reproduzíveis, não uma avaliação semântica completa nem parte
+do CI; inspecione também as respostas listadas no relatório.
+
 ## Síntese com LLM (opcional)
 
 O padrão `extractive` lista as evidências sem chamar um serviço externo. Para usar um modelo local,

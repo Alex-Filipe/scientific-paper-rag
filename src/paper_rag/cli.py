@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
@@ -8,9 +9,9 @@ import typer
 
 from paper_rag.adapters.parsing import parse_file
 from paper_rag.bootstrap import build_container
-from paper_rag.evaluation.dataset import load_dataset
-from paper_rag.evaluation.models import RetrievalReport
-from paper_rag.evaluation.runner import RetrievalEvaluator
+from paper_rag.evaluation.dataset import load_dataset, load_generation_dataset
+from paper_rag.evaluation.models import GenerationReport, RetrievalReport
+from paper_rag.evaluation.runner import GenerationEvaluator, RetrievalEvaluator
 from paper_rag.settings import Settings
 
 app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=True)
@@ -139,6 +140,89 @@ def evaluate(
             err=True,
         )
         raise typer.Exit(code=1)
+
+
+@app.command()
+def evaluate_generation(
+    dataset: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True),
+    ] = Path("evaluation/generation_baseline.json"),
+    top_k: Annotated[int, typer.Option(min=1, max=20)] = 4,
+) -> None:
+    """Evaluate generated answers, citations, and abstention behavior."""
+    evaluation_dataset = load_generation_dataset(dataset)
+    configured = Settings.from_environment()
+    if configured.generation_backend == "extractive":
+        typer.echo(
+            "Set RAG_GENERATION_BACKEND to 'ollama' or 'openai' to evaluate generation.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    model = (
+        configured.ollama_model
+        if configured.generation_backend == "ollama"
+        else configured.openai_model
+    )
+    with TemporaryDirectory(prefix="paper-rag-generation-evaluation-") as directory:
+        run_settings = replace(
+            configured,
+            database_path=Path(directory) / "evaluation.db",
+            top_k=top_k,
+        )
+        container = build_container(run_settings)
+        report = GenerationEvaluator(
+            ingest_document=container.ingest_document,
+            ask_question=container.ask_question,
+            backend=configured.generation_backend,
+            model=model,
+        ).run(evaluation_dataset)
+
+    _print_generation_report(report)
+
+
+def _print_generation_report(report: GenerationReport) -> None:
+    answerable = tuple(case for case in report.cases if case.answer_facts_match is not None)
+    typer.echo(f"Backend/model: {report.backend}/{report.model}")
+    typer.echo(
+        f"Cases: {len(report.cases)} "
+        f"({len(answerable)} answerable, {len(report.cases) - len(answerable)} abstention)"
+    )
+    _echo_rate("Expected facts in answer", (case.answer_facts_match for case in answerable))
+    _echo_rate("Valid citations", (case.citation_valid for case in answerable))
+    _echo_rate(
+        "Cited evidence supports expected facts",
+        (case.citation_supported for case in answerable),
+    )
+    _echo_rate("Abstention decisions", (case.abstention_correct for case in report.cases))
+
+    for index, case in enumerate(report.cases, start=1):
+        typer.echo(f"[{index}] {case.question}")
+        typer.echo(f"  Answer: {case.answer}")
+        typer.echo(f"  Retrieved sources: {', '.join(case.retrieved_sources) or 'none'}")
+        typer.echo(f"  Cited sources: {', '.join(case.cited_sources) or 'none'}")
+        if case.answer_facts_match is None:
+            typer.echo(f"  Abstention: {'correct' if case.abstention_correct else 'incorrect'}")
+        elif case.abstained:
+            typer.echo("  Unexpected abstention for an answerable case")
+        else:
+            typer.echo(
+                "  Facts: "
+                f"{'match' if case.answer_facts_match else 'miss'}; "
+                f"citation: {'valid' if case.citation_valid else 'invalid'}; "
+                f"evidence: {'supports' if case.citation_supported else 'unsupported'}"
+            )
+
+
+def _echo_rate(label: str, values: Iterable[bool | None]) -> None:
+    eligible = tuple(value for value in values if value is not None)
+    if not eligible:
+        typer.echo(f"{label}: N/A")
+        return
+
+    successes = sum(eligible)
+    typer.echo(f"{label}: {successes}/{len(eligible)} ({successes / len(eligible):.3f})")
 
 
 @app.command()
