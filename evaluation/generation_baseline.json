@@ -1,0 +1,71 @@
+{
+  "name": "baseline",
+  "description": "Small synthetic generation dataset (ported from feature/0012-generation-evaluation). Inline documents, so it needs no PDF; useful as a quick smoke test.",
+  "documents": [
+    {
+      "title": "Piloto Aurora",
+      "source": "aurora-pilot",
+      "text": "O estudo piloto da iniciativa Aurora ocorreu em 2025 no Hospital Azul. A equipe mediu o tempo médio de triagem: caiu de 10 minutos para 6,3 minutos por documento, uma redução de 37%."
+    },
+    {
+      "title": "Busca híbrida",
+      "source": "hybrid-search",
+      "text": "A busca híbrida combina o BM25, baseado em correspondência textual, com a busca vetorial por embeddings semânticos. O Reciprocal Rank Fusion (RRF) combina as posições dos resultados."
+    },
+    {
+      "title": "Geração fundamentada",
+      "source": "rag-grounding",
+      "text": "O RAG recupera trechos dos documentos para fornecer evidências ao gerador. Uma resposta confiável deve citar as evidências e deve se abster quando os documentos não contêm a resposta."
+    }
+  ],
+  "cases": [
+    {
+      "id": "aurora-reduction",
+      "category": "direct",
+      "question": "Qual foi a redução percentual no tempo de triagem do piloto Aurora?",
+      "reference_answer": "37%.",
+      "facts": [["37"]],
+      "evidence": [{"text": "uma redução de 37%"}]
+    },
+    {
+      "id": "aurora-times",
+      "category": "direct",
+      "question": "Quais eram os tempos médios de triagem antes e depois do piloto?",
+      "reference_answer": "10 minutos antes e 6,3 minutos depois.",
+      "facts": [["10 minutos", "10 min"], ["6,3 minutos", "6,3 min"]],
+      "evidence": [{"text": "caiu de 10 minutos para 6,3 minutos por documento"}]
+    },
+    {
+      "id": "hybrid-methods",
+      "category": "direct",
+      "question": "Quais métodos a busca híbrida combina?",
+      "reference_answer": "BM25 e busca vetorial por embeddings semânticos.",
+      "facts": [["BM25"], ["embeddings", "vetorial"]],
+      "evidence": [{"text": "combina o BM25, baseado em correspondência textual, com a busca vetorial por embeddings semânticos"}]
+    },
+    {
+      "id": "aurora-place",
+      "category": "direct",
+      "question": "Em que ano e hospital ocorreu o piloto Aurora?",
+      "reference_answer": "Em 2025, no Hospital Azul.",
+      "facts": [["2025"], ["Hospital Azul"]],
+      "evidence": [{"text": "ocorreu em 2025 no Hospital Azul"}]
+    },
+    {
+      "id": "aurora-funding",
+      "category": "unanswerable",
+      "question": "Qual instituição financiou o piloto Aurora?",
+      "reference_answer": "Não informado.",
+      "facts": [],
+      "evidence": []
+    },
+    {
+      "id": "aurora-participants",
+      "category": "unanswerable",
+      "question": "Quantos participantes fizeram parte do piloto Aurora?",
+      "reference_answer": "Não informado.",
+      "facts": [],
+      "evidence": []
+    }
+  ]
+}

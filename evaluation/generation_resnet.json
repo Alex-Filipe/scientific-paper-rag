@@ -1,0 +1,281 @@
+{
+  "name": "resnet",
+  "description": "Generation evaluation on a real paper: He et al., Deep Residual Learning for Image Recognition (CVPR 2016). The PDF is not versioned; pass its folder with --papers-dir. Pages are 1-based PDF pages. Evidence quotes are matched ignoring whitespace and case; facts list accepted alternatives and every group must appear for a correct answer.",
+  "documents": [
+    {
+      "title": "Deep Residual Learning for Image Recognition",
+      "file": "He_Deep_Residual_Learning_CVPR_2016_paper.pdf",
+      "sha256": "51b5de45eb0b558b19c3affe49503cff50cb170a32de602983d6e2ec286942a7"
+    }
+  ],
+  "cases": [
+    {
+      "id": "direct-degradation",
+      "category": "direct",
+      "question": "Which problem do the authors address by introducing the deep residual learning framework?",
+      "reference_answer": "The degradation problem: as plain networks get deeper, accuracy saturates and then degrades and the training error grows; it is not caused by overfitting.",
+      "facts": [["degradation", "degradação"]],
+      "evidence": [
+        {"page": 2, "text": "we address the degradation problem by introducing a deep residual learning framework"},
+        {"page": 1, "text": "a degradation problem has been exposed"}
+      ]
+    },
+    {
+      "id": "direct-batch-size",
+      "category": "direct",
+      "question": "What mini-batch size was used to train the ImageNet models?",
+      "reference_answer": "256 (SGD with a mini-batch size of 256); the CIFAR-10 models used 128.",
+      "facts": [["256"]],
+      "evidence": [
+        {"page": 4, "text": "use SGD with a mini-batch size of 256"}
+      ]
+    },
+    {
+      "id": "direct-weight-decay",
+      "category": "direct",
+      "question": "Which weight decay and momentum were used to train on ImageNet?",
+      "reference_answer": "Weight decay of 0.0001 and momentum of 0.9.",
+      "facts": [["0.0001", "1e-4", "10^-4", "10-4"], ["0.9"]],
+      "evidence": [
+        {"page": 4, "text": "use a weight decay of 0.0001 and a momentum of 0.9"}
+      ]
+    },
+    {
+      "id": "direct-ensemble",
+      "category": "direct",
+      "question": "What top-5 error did the ResNet ensemble obtain on the ImageNet test set?",
+      "reference_answer": "3.57% top-5 error, which won the 1st place in the ILSVRC 2015 classification task.",
+      "facts": [["3.57"]],
+      "evidence": [
+        {"page": 1, "text": "An ensemble of these residual nets achieves 3.57% error on the ImageNet test set"},
+        {"page": 2, "text": "Our ensemble has 3.57% top-5 error"},
+        {"page": 7, "text": "This leads to 3.57% top-5 error on the test set"}
+      ]
+    },
+    {
+      "id": "direct-bottleneck",
+      "category": "direct",
+      "question": "Which layers make up the bottleneck building block used in ResNet-50/101/152?",
+      "reference_answer": "A stack of three convolutions, 1×1, 3×3 and 1×1; the 1×1 layers reduce and then restore the dimensions.",
+      "facts": [["1x1", "1 x 1"], ["3x3", "3 x 3"]],
+      "evidence": [
+        {"page": 6, "text": "The three layers are 1×1, 3×3, and 1×1 convolutions"}
+      ]
+    },
+    {
+      "id": "direct-coco",
+      "category": "direct",
+      "question": "What relative improvement on the COCO object detection dataset do the deep residual representations bring?",
+      "reference_answer": "A 28% relative improvement (+6.0 points in COCO's mAP@[.5, .95]).",
+      "facts": [["28"]],
+      "evidence": [
+        {"page": 1, "text": "we obtain a 28% relative improvement on the COCO object detection dataset"},
+        {"page": 8, "text": "which is a 28% relative improvement"}
+      ]
+    },
+    {
+      "id": "vague-main-idea",
+      "category": "vague",
+      "question": "What is the main idea of this paper?",
+      "reference_answer": "Let stacked layers learn a residual function F(x) = H(x) - x through identity shortcut connections, which makes much deeper networks easier to optimize.",
+      "facts": [["residual", "residuals", "residuais", "resíduo"]],
+      "evidence": [
+        {"page": 1, "text": "reformulate the layers as learning residual functions with reference to the layer inputs"},
+        {"page": 2, "text": "we explicitly let these layers fit a residual mapping"}
+      ]
+    },
+    {
+      "id": "vague-deeper-worse",
+      "category": "vague",
+      "question": "Why do deeper networks sometimes perform worse?",
+      "reference_answer": "Degradation: with more depth, accuracy saturates and then degrades and the training error increases; it is an optimization difficulty, not overfitting.",
+      "facts": [["degradation", "degrades", "degraded", "degradação", "optimization", "optimize", "training error", "otimização", "erro de treino"]],
+      "evidence": [
+        {"page": 1, "text": "such degradation is not caused by overfitting"},
+        {"page": 1, "text": "accuracy gets saturated (which might be unsurprising) and then degrades rapidly"}
+      ]
+    },
+    {
+      "id": "vague-competitions",
+      "category": "vague",
+      "question": "Did the method win any competition?",
+      "reference_answer": "Yes: 1st place in the ILSVRC 2015 classification task, and also ImageNet detection, ImageNet localization, COCO detection and COCO segmentation.",
+      "facts": [["ilsvrc", "imagenet", "coco"]],
+      "evidence": [
+        {"page": 1, "text": "This result won the 1st place on the ILSVRC 2015 classification task"},
+        {"page": 2, "text": "won the 1st place in the ILSVRC 2015 classification competition"},
+        {"page": 7, "text": "This entry won the 1st place in ILSVRC 2015"},
+        {"page": 8, "text": "we won the 1st places in several tracks in ILSVRC & COCO 2015 competitions"}
+      ]
+    },
+    {
+      "id": "vague-shortcuts",
+      "category": "vague",
+      "question": "How do the shortcut connections work?",
+      "reference_answer": "They skip one or more layers and perform identity mapping; their outputs are added to the outputs of the stacked layers, with no extra parameters or computation.",
+      "facts": [["identity", "identidade"]],
+      "evidence": [
+        {"page": 2, "text": "the shortcut connections simply perform identity mapping, and their outputs are added to the outputs of the stacked layers"}
+      ]
+    },
+    {
+      "id": "table-plain34",
+      "category": "table",
+      "question": "According to Table 2, what is the top-1 error of the 34-layer plain network?",
+      "reference_answer": "28.54% (top-1, 10-crop testing, ImageNet validation).",
+      "facts": [["28.54"]],
+      "evidence": [
+        {"page": 5, "text": "34 layers 28.54 25.03"},
+        {"page": 6, "text": "plain-34 28.54 10.02"}
+      ]
+    },
+    {
+      "id": "table-resnet50",
+      "category": "table",
+      "question": "What top-5 error does ResNet-50 reach in Table 3 (10-crop testing)?",
+      "reference_answer": "6.71%.",
+      "facts": [["6.71"]],
+      "evidence": [
+        {"page": 6, "text": "ResNet-50 22.85 6.71"}
+      ]
+    },
+    {
+      "id": "table-cifar110",
+      "category": "table",
+      "question": "On CIFAR-10 (Table 6), what error does the 110-layer ResNet reach and how many parameters does it have?",
+      "reference_answer": "6.43% error (best of 5 runs; mean 6.61±0.16) with 1.7M parameters.",
+      "facts": [["6.43"], ["1.7"]],
+      "evidence": [
+        {"page": 7, "text": "ResNet 110 1.7M 6.43"}
+      ]
+    },
+    {
+      "id": "table-coco-map",
+      "category": "table",
+      "question": "In Table 8, what mAP@[.5, .95] does ResNet-101 achieve on the COCO validation set?",
+      "reference_answer": "27.2% (VGG-16: 21.2%).",
+      "facts": [["27.2"]],
+      "evidence": [
+        {"page": 8, "text": "ResNet-101 48.4 27.2"}
+      ]
+    },
+    {
+      "id": "table-flops152",
+      "category": "table",
+      "question": "How many FLOPs does the 152-layer ResNet have?",
+      "reference_answer": "11.3 billion FLOPs, still fewer than VGG-16/19 (15.3/19.6 billion).",
+      "facts": [["11.3"]],
+      "evidence": [
+        {"page": 7, "text": "the 152-layer ResNet (11.3 billion FLOPs)"},
+        {"page": 5, "text": "7.6×109 11.3×109"}
+      ]
+    },
+    {
+      "id": "pt-single-model",
+      "category": "portuguese",
+      "question": "Qual é o erro top-5 do ResNet-152 como modelo único na validação do ImageNet?",
+      "reference_answer": "4,49% (Tabela 4); esse modelo único supera todos os ensembles anteriores.",
+      "facts": [["4.49"]],
+      "evidence": [
+        {"page": 7, "text": "single-model top-5 validation error of 4.49%"},
+        {"page": 6, "text": "ResNet-152 19.38 4.49"}
+      ]
+    },
+    {
+      "id": "pt-degradation",
+      "category": "portuguese",
+      "question": "Que problema aparece quando se aumenta a profundidade de redes planas, sem atalhos?",
+      "reference_answer": "O problema de degradação: a acurácia satura e depois cai, e o erro de treino aumenta; não é causado por overfitting.",
+      "facts": [["degradação", "degradation", "erro de treino", "erro de treinamento", "training error"]],
+      "evidence": [
+        {"page": 1, "text": "such degradation is not caused by overfitting"},
+        {"page": 5, "text": "34-layer plain net has higher training error throughout the whole training procedure"}
+      ]
+    },
+    {
+      "id": "pt-learning-rate",
+      "category": "portuguese",
+      "question": "Qual é a taxa de aprendizado inicial no treino do ImageNet e como ela muda?",
+      "reference_answer": "Começa em 0,1 e é dividida por 10 quando o erro estabiliza.",
+      "facts": [["0.1"]],
+      "evidence": [
+        {"page": 4, "text": "The learning rate starts from 0.1 and is divided by 10 when the error plateaus"}
+      ]
+    },
+    {
+      "id": "pt-cifar-size",
+      "category": "portuguese",
+      "question": "Quantas imagens de treino e de teste tem o CIFAR-10 usado no artigo?",
+      "reference_answer": "50 mil imagens de treino e 10 mil de teste, em 10 classes.",
+      "facts": [
+        ["50k", "50 mil", "50.000", "50 000", "50000", "50 thousand"],
+        ["10k", "10 mil", "10.000", "10 000", "10000", "10 thousand"]
+      ],
+      "evidence": [
+        {"page": 7, "text": "which consists of 50k training images and 10k testing images in 10 classes"}
+      ]
+    },
+    {
+      "id": "pt-highway",
+      "category": "portuguese",
+      "question": "Qual é a diferença entre os atalhos do ResNet e os das highway networks?",
+      "reference_answer": "As highway networks usam portas (gating) que dependem dos dados e têm parâmetros, e podem se fechar; os atalhos identidade do ResNet não têm parâmetros e nunca se fecham.",
+      "facts": [["gate", "gates", "gating", "porta", "portas", "comporta", "comportas", "parameter-free", "parâmetros", "parameters"]],
+      "evidence": [
+        {"page": 2, "text": "present shortcut connections with gating functions"},
+        {"page": 2, "text": "in contrast to our identity shortcuts that are parameter-free"}
+      ]
+    },
+    {
+      "id": "pt-option-b",
+      "category": "portuguese",
+      "question": "O que é a opção B de atalhos no artigo?",
+      "reference_answer": "Atalhos de projeção (convoluções 1×1) apenas quando as dimensões aumentam; os demais atalhos são identidade.",
+      "facts": [["projeção", "projeções", "projection", "projections"]],
+      "evidence": [
+        {"page": 6, "text": "(B) projection shortcuts are used for increasing dimensions, and other shortcuts are identity"},
+        {"page": 4, "text": "(B) The projection shortcut in Eqn.(2) is used to match dimensions"}
+      ]
+    },
+    {
+      "id": "unanswerable-bleu",
+      "category": "unanswerable",
+      "question": "What BLEU score does the model achieve on WMT14 English-German translation?",
+      "reference_answer": "Not in the paper: it has no machine translation experiments.",
+      "facts": [],
+      "evidence": []
+    },
+    {
+      "id": "unanswerable-params152",
+      "category": "unanswerable",
+      "question": "How many parameters does the 152-layer ResNet have?",
+      "reference_answer": "Not in the paper: it reports only FLOPs for ResNet-152 (11.3 billion); parameter counts are given only for the CIFAR-10 models.",
+      "facts": [],
+      "evidence": []
+    },
+    {
+      "id": "unanswerable-training-time",
+      "category": "unanswerable",
+      "question": "Quantas horas levou o treinamento do ResNet-152 no ImageNet?",
+      "reference_answer": "O artigo não informa o tempo de treinamento.",
+      "facts": [],
+      "evidence": []
+    },
+    {
+      "id": "unanswerable-mnist",
+      "category": "unanswerable",
+      "question": "Qual foi a acurácia do ResNet no conjunto de teste do MNIST?",
+      "reference_answer": "O artigo não informa; o MNIST só aparece ao citar o trabalho [41].",
+      "facts": [],
+      "evidence": []
+    },
+    {
+      "id": "unanswerable-vit",
+      "category": "unanswerable",
+      "question": "Como o artigo compara as ResNets com os Vision Transformers?",
+      "reference_answer": "Não compara; os Vision Transformers são posteriores ao artigo (2016).",
+      "facts": [],
+      "evidence": []
+    }
+  ]
+}

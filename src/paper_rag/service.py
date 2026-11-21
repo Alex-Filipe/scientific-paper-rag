@@ -1,10 +1,12 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph.state import CompiledStateGraph
 
@@ -18,6 +20,17 @@ from paper_rag.settings import Settings
 from paper_rag.vectorstore import ChunkIndex
 
 EXCERPT_CHARS = 280
+
+
+@dataclass(frozen=True, slots=True)
+class Trace:
+    """One graph run with everything the evaluation needs to look inside it."""
+
+    answer: Answer
+    contexts: tuple[Document, ...]
+    """Final contexts; citation numbers in the answer refer to these."""
+    updates: tuple[tuple[str, dict[str, Any]], ...]
+    """State update of each node, in execution order (e.g. contexts before and after grade)."""
 
 
 @dataclass(slots=True)
@@ -44,6 +57,33 @@ class RagService:
 
     def ask(self, question: str, top_k: int | None = None) -> Answer:
         return _to_answer(self.graph.invoke(self._initial_state(question, top_k)))
+
+    def trace(
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        callbacks: Sequence[BaseCallbackHandler] = (),
+    ) -> Trace:
+        """Run the graph like `ask`, keeping each node's update; callbacks see every LLM call."""
+        config: RunnableConfig = {"callbacks": list(callbacks)}
+        updates: list[tuple[str, dict[str, Any]]] = []
+        final_state: dict[str, Any] = {}
+        for mode, chunk in self.graph.stream(
+            self._initial_state(question, top_k),
+            config,
+            stream_mode=["updates", "values"],
+        ):
+            if mode == "updates":
+                node_updates = cast(dict[str, dict[str, Any] | None], chunk)
+                updates.extend((node, dict(update or {})) for node, update in node_updates.items())
+            else:
+                final_state = cast(dict[str, Any], chunk)
+        return Trace(
+            answer=_to_answer(final_state),
+            contexts=tuple(final_state.get("contexts", [])),
+            updates=tuple(updates),
+        )
 
     def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, Any]]:
         """Validate eagerly, then yield `step`, `token` and a final `answer` event."""

@@ -1,4 +1,6 @@
+import json
 from dataclasses import replace
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,9 +8,15 @@ from typing import Annotated
 
 import typer
 
-from paper_rag.evaluation.dataset import load_dataset
-from paper_rag.evaluation.models import RetrievalReport
-from paper_rag.evaluation.runner import RetrievalEvaluator
+from paper_rag.evaluation.dataset import load_dataset, load_generation_dataset
+from paper_rag.evaluation.models import GenerationRecord, RetrievalReport
+from paper_rag.evaluation.report import format_report, load_records
+from paper_rag.evaluation.runner import (
+    GENERATION_CONFIGS,
+    GenerationEvaluator,
+    RetrievalEvaluator,
+    reset_ollama_cache,
+)
 from paper_rag.service import build_service
 from paper_rag.settings import Settings
 
@@ -25,6 +33,12 @@ class EvaluationRetrieval(StrEnum):
     VECTOR = "vector"
     HYBRID = "hybrid"
     BOTH = "both"
+
+
+class GraphConfig(StrEnum):
+    LINEAR = "linear"
+    GRADE = "grade"
+    GRADE_REWRITE = "grade-rewrite"
 
 
 @app.command()
@@ -144,6 +158,135 @@ def evaluate(
             err=True,
         )
         raise typer.Exit(code=1)
+
+
+@app.command()
+def evaluate_generation(
+    dataset: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True),
+    ] = Path("evaluation/generation_resnet.json"),
+    papers_dir: Annotated[
+        Path | None,
+        typer.Option(help="Folder with the dataset PDFs (default: the dataset's folder)."),
+    ] = None,
+    config: Annotated[
+        list[GraphConfig] | None,
+        typer.Option(help="Graph configuration; repeat to compare (default: all three)."),
+    ] = None,
+    embedding: Annotated[
+        EvaluationEmbedding,
+        typer.Option(help="Embedding backend; use 'both' to evaluate each."),
+    ] = EvaluationEmbedding.HASHING,
+    runs: Annotated[int, typer.Option(min=1, max=20, help="Repetitions of every case.")] = 3,
+    top_k: Annotated[int, typer.Option(min=1, max=20)] = 4,
+    case: Annotated[
+        list[str] | None, typer.Option(help="Only these case ids (repeatable).")
+    ] = None,
+    limit: Annotated[int | None, typer.Option(min=1, help="Only the first N cases.")] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(help="Results JSONL (default: .data/evaluation/generation-*.jsonl)."),
+    ] = None,
+    report: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True, dir_okay=False, help="Print the report of an existing results JSONL."
+        ),
+    ] = None,
+    cold: Annotated[
+        bool,
+        typer.Option(help="Ollama: reload the model before each question to empty its cache."),
+    ] = True,
+) -> None:
+    """Compare graph configurations on answers, citations, abstention and cost (calls the LLM)."""
+    if report is not None:
+        typer.echo(format_report(load_records(report)))
+        return
+
+    configured = Settings.from_environment()
+    if configured.generation_backend == "extractive":
+        typer.echo("Set RAG_GENERATION_BACKEND to 'ollama' or 'openai'.", err=True)
+        raise typer.Exit(code=2)
+    model = (
+        configured.ollama_model
+        if configured.generation_backend == "ollama"
+        else configured.openai_model
+    )
+
+    evaluation_dataset = load_generation_dataset(dataset)
+    cases = evaluation_dataset.cases
+    if case:
+        unknown = sorted(set(case) - {item.id for item in cases})
+        if unknown:
+            typer.echo(f"Unknown case ids: {', '.join(unknown)}", err=True)
+            raise typer.Exit(code=2)
+        cases = tuple(item for item in cases if item.id in case)
+    evaluation_dataset = replace(evaluation_dataset, cases=cases[:limit])
+
+    configs = list(dict.fromkeys(config or list(GraphConfig)))
+    backends = (
+        ("hashing", "semantic") if embedding is EvaluationEmbedding.BOTH else (embedding.value,)
+    )
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    results = (
+        output or Path(".data/evaluation") / f"generation-{evaluation_dataset.name}-{stamp}.jsonl"
+    )
+    results.parent.mkdir(parents=True, exist_ok=True)
+
+    before_case = None
+    if cold and configured.generation_backend == "ollama":
+
+        def before_case() -> None:
+            reset_ollama_cache(configured.ollama_base_url, configured.ollama_model)
+
+    records: list[GenerationRecord] = []
+    try:
+        with (
+            TemporaryDirectory(prefix="paper-rag-generation-") as directory,
+            results.open("w", encoding="utf-8") as sink,
+        ):
+
+            def save(record: GenerationRecord) -> None:
+                sink.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+                sink.flush()
+                typer.echo(
+                    f"[{record.embedding} {record.config} run {record.run}] {record.case_id}: "
+                    f"{record.verdict.value} ({record.latency_s:.1f} s)",
+                    err=True,
+                )
+
+            for backend in backends:
+                services = {
+                    name.value: build_service(
+                        replace(
+                            configured,
+                            chroma_dir=Path(directory) / backend,
+                            embedding_backend=backend,
+                            top_k=top_k,
+                            grade_documents=GENERATION_CONFIGS[name.value].grade_documents,
+                            max_rewrites=GENERATION_CONFIGS[name.value].max_rewrites,
+                        )
+                    )
+                    for name in configs
+                }
+                evaluator = GenerationEvaluator(
+                    services=services,
+                    model=model,
+                    embedding=backend,
+                    top_k=top_k,
+                    before_case=before_case,
+                )
+                evaluator.ingest(evaluation_dataset, papers_dir or dataset.parent)
+                if before_case is None:  # warm-up, so the first latency excludes model loading
+                    next(iter(services.values())).ask(evaluation_dataset.cases[0].question, top_k)
+                records += evaluator.run(evaluation_dataset, runs, on_record=save)
+    except (ConnectionError, RuntimeError, FileNotFoundError, ValueError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(format_report(records))
+    typer.echo(f"\nResults: {results}")
 
 
 @app.command()
