@@ -15,7 +15,7 @@ pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate | a
 
 | Módulo | Responsabilidade |
 |---|---|
-| `documents.py` | `PaperLoader` (PDF por página com `pypdf`, TXT/MD) e chunking por palavras |
+| `documents.py` | `PaperLoader` (PDF por página com `pypdf` e limpeza de ligaduras/hifenização, TXT/MD) e chunking por palavras |
 | `embeddings.py` | `HashingEmbeddings` (baseline sem download) e `FastEmbedEmbeddings` (semântico, CPU) |
 | `vectorstore.py` | `ChunkIndex`: coleção Chroma persistente por espaço de embeddings |
 | `retrieval.py` | `BM25Retriever`, `RRFRetriever` e `HybridSearch` (BM25 + vetores via RRF) |
@@ -35,21 +35,28 @@ START -> retrieve -> grade --(há trechos úteis)--> generate -> END
 ```
 
 - **retrieve:** busca híbrida com `RAG_CANDIDATE_K` candidatos por ranker e corte final em `top_k`.
-- **grade:** o LLM indica quais trechos ajudam (`1, 3` ou `nenhum`). Resposta ilegível mantém
-  todos os trechos. Desligado sem LLM ou com `RAG_GRADE_DOCUMENTS=false`.
+- **grade:** o LLM julga cada trecho separadamente (`sim`/`não`, uma chamada por trecho). Resposta
+  ilegível mantém o trecho. Desligado sem LLM ou com `RAG_GRADE_DOCUMENTS=false`.
 - **rewrite:** o LLM reescreve a pergunta como consulta técnica. Limitado por `RAG_MAX_REWRITES`.
+  Se a consulta reescrita não tiver palavras (por exemplo, só um número), a pergunta original é
+  mantida.
 - **generate:** sem LLM, lista as evidências (`extractive`). Com LLM, exige citações `[n]`
   válidas; se faltarem ou apontarem para trechos inexistentes, mostra as evidências (`fallback`).
 - **abstain:** responde que não há evidência suficiente.
 
 Cada nó registra um `Step`. Em `POST /questions/stream` os passos chegam como eventos `step`, os
-tokens da geração como `token` e a resposta final como `answer`.
+tokens da geração como `token` e a resposta final como `answer`. Os tokens saem antes da validação
+das citações: o cliente deve substituir o texto parcial pelo do evento `answer`, que pode ser
+`fallback` (evidências) ou `abstained`.
 
 ## Decisões
 
 1. **Chroma local** guarda vetores e textos sem servidor nem Docker. Cada espaço de embeddings tem
    sua própria coleção, evitando comparar vetores incompatíveis; trocar de backend exige reingerir.
-2. **Reingestão sem órfãos:** antes de adicionar um documento, todos os chunks dele são removidos.
+2. **Reingestão sem órfãos nem duplicatas:** antes de adicionar um documento, todos os chunks dele
+   são removidos. O documento é identificado por título + origem: na CLI, o caminho absoluto; no
+   upload da API, o nome do arquivo (reenviar o mesmo nome substitui a versão anterior). O mesmo
+   artigo ingerido pela CLI e pela API vira dois documentos.
 3. **Busca híbrida por padrão:** BM25+ (sem acentos e sem stop words, só chunks com termos em
    comum) e busca vetorial fundidos por Reciprocal Rank Fusion. Cada ranker contribui
    `RAG_CANDIDATE_K` candidatos antes do corte, para que a fusão tenha o que reordenar.
@@ -63,6 +70,28 @@ tokens da geração como `token` e a resposta final como `answer`.
    definem uma frase exata de abstenção. O modo extrativo continua sendo o padrão.
 7. **Avaliação no CI:** Recall@K e MRR bloqueiam regressões na busca vetorial e híbrida, com
    perguntas diretas e parafraseadas.
+8. **Avaliação trecho a trecho:** com o `qwen2.5:1.5b`, pedir a lista dos trechos úteis gerava
+   números inexistentes (`3, 5, 6, 7, 8` para 4 trechos), e artigos têm suas próprias referências
+   entre colchetes (`[40]`). Um `sim`/`não` por trecho é o formato que o modelo pequeno segue.
+
+## Teste com artigo real
+
+ResNet (He et al., CVPR 2016, 9 páginas em duas colunas), `qwen2.5:1.5b-instruct` no Ollama,
+`top_k=4`, 7 perguntas (diretas, vaga, sem resposta, numérica e duas em português):
+
+- **Extração (`pypdf`):** a ordem das colunas sai correta e as tabelas viram linhas legíveis
+  (`ResNet-152 19.38 4.49`). Ligaduras (`ﬁ`) e hifenização de fim de linha agora são limpas. Ainda
+  ficam espaços espúrios (`W e`, `T able`, `CIF AR-10`), números dos eixos das figuras e expoentes
+  perdidos (`1.8×109`); isso fica para o parser da etapa 4.
+- **Páginas citadas:** corretas (conferidas com `pdftotext`), porque os chunks nunca cruzam páginas.
+- **Latência:** 2,5 a 5,1 s por pergunta na CLI (média 4,0 s, MacBook M4), incluindo até 9
+  chamadas ao LLM quando há reescrita.
+- **Grafo:** o avaliador de 1,5B quase não discrimina. Com o prompt "ajuda a responder", descarta
+  trechos bons (falsas abstenções, sobretudo com pergunta em português e artigo em inglês). Com
+  um prompt tolerante, aprova tudo e o fluxo vira linear. A reescrita costuma produzir uma
+  resposta inventada em vez de uma consulta. Medir isso com dataset é a etapa 2.
+- **Geração:** a validação garante citações existentes, não respostas fiéis. O modelo errou
+  perguntas diretas ("vanishing gradients" em vez de degradação) citando trechos válidos.
 
 ## Comparação com a versão manual (`v0.1.0-manual`)
 

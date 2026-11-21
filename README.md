@@ -42,9 +42,9 @@ API interativa: `http://127.0.0.1:8000/docs`.
 | Endpoint | Função |
 |---|---|
 | `POST /documents` | Ingere texto (`title`, `text`, `source`) |
-| `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md` |
+| `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md`; reenviar o mesmo nome substitui a versão anterior |
 | `POST /questions` | Resposta estruturada: texto, status, citações com página e passos do grafo |
-| `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` |
+| `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` (o `answer` final prevalece sobre os tokens) |
 
 ## Embeddings semânticos
 
@@ -85,8 +85,10 @@ RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
   paper-rag ask "Qual é a principal contribuição do artigo?"
 ```
 
-Com LLM, o grafo avalia se os trechos ajudam (`RAG_GRADE_DOCUMENTS`) e, se nenhum ajudar,
-reescreve a pergunta até `RAG_MAX_REWRITES` vezes. As respostas devem citar os trechos como `[1]`,
+Com LLM, o grafo avalia cada trecho recuperado (`RAG_GRADE_DOCUMENTS`) e, se nenhum ajudar,
+reescreve a pergunta até `RAG_MAX_REWRITES` vezes. Com o `qwen2.5:1.5b-instruct` o fluxo roda em
+cerca de 4 s por pergunta, mas o modelo é fraco como avaliador e como gerador; veja o teste com
+artigo real em [`docs/architecture.md`](docs/architecture.md#teste-com-artigo-real). As respostas devem citar os trechos como `[1]`,
 `[2]` etc.; se o modelo não fornecer citações válidas, o sistema mostra as evidências em vez de uma
 síntese sem referências.
 
