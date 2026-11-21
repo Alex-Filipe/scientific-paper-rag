@@ -1,12 +1,24 @@
 # Scientific Paper RAG
 
-RAG backend para consultar artigos científicos com respostas e citações rastreáveis. O modo
+RAG backend para consultar artigos científicos com respostas e citações rastreáveis (documento e
+página), construído com **LangChain** e orquestrado por um grafo **LangGraph** corretivo. O modo
 extrativo roda localmente sem Docker, serviço externo ou chave de API; a síntese com LLM é opcional.
 
 ```text
-documento -> parsing -> chunks -> embeddings -> SQLite
-pergunta  -> embeddings -> retrieval -> resposta + citações
+ingestão: documento -> loader -> text splitter -> embeddings -> Chroma
+pergunta: retrieve (BM25 + vetores, RRF) -> grade -> [rewrite -> retrieve] -> generate | abstain
 ```
+
+| Etapa | Tecnologia |
+|---|---|
+| Chunking | `langchain-text-splitters` (`RecursiveCharacterTextSplitter`, tamanho em palavras) |
+| Vetores | Chroma local via `langchain-chroma` |
+| Busca | Híbrida: BM25+ e vetores fundidos por Reciprocal Rank Fusion |
+| Geração | `ChatOllama` (local) ou `ChatOpenAI` (Responses API), com citações validadas |
+| Orquestração | LangGraph: avalia evidência, reescreve a pergunta e se abstém quando necessário |
+| Entrada | CLI (Typer) e API FastAPI com streaming SSE |
+
+Detalhes e decisões em [`docs/architecture.md`](docs/architecture.md).
 
 ## Como executar
 
@@ -20,28 +32,63 @@ python -m pip install -e ".[dev]"
 
 ```bash
 paper-rag ingest data/artigo.pdf
-paper-rag ask "Qual é a principal contribuição do artigo?"
+paper-rag ask "Qual é a principal contribuição do artigo?" --show-steps
 paper-rag evaluate evaluation/retrieval_baseline.json
 paper-rag serve
 ```
 
 API interativa: `http://127.0.0.1:8000/docs`.
 
-Para usar embeddings semânticos locais, instale a opção `semantic` (o modelo é baixado na primeira
-execução) e selecione o mesmo backend ao ingerir e consultar:
+| Endpoint | Função |
+|---|---|
+| `POST /documents` | Ingere texto (`title`, `text`, `source`) |
+| `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md` |
+| `POST /questions` | Resposta estruturada: texto, status, citações com página e passos do grafo |
+| `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` |
+
+## Embeddings semânticos
+
+Instale a opção `semantic` (o modelo é baixado na primeira execução para `.data/models`) e use o
+mesmo backend ao ingerir e consultar:
 
 ```bash
 python -m pip install -e ".[semantic]"
 RAG_EMBEDDING_BACKEND=semantic paper-rag ingest data/artigo.pdf
-RAG_EMBEDDING_BACKEND=semantic RAG_RETRIEVAL_MODE=hybrid paper-rag ask "Qual é a contribuição?"
+RAG_EMBEDDING_BACKEND=semantic paper-rag ask "Qual é a contribuição?"
 paper-rag evaluate evaluation/retrieval_paraphrases.json --embedding semantic --retrieval-mode both
 ```
 
-Hashing permanece como backend padrão e serve de referência. `--embedding both` mostra as métricas
-de cada embedder; `--retrieval-mode both` compara busca vetorial e híbrida. A busca híbrida combina
-BM25 do SQLite FTS5 com busca vetorial usando Reciprocal Rank Fusion (RRF) e é o padrão. Defina
-`RAG_RETRIEVAL_MODE=vector` para usar somente vetores. O modelo fica em `.data/models`; os vetores de
-cada método ficam isolados no SQLite.
+Hashing é o backend padrão e serve de referência. `--embedding both` compara os embedders e
+`--retrieval-mode both` compara busca vetorial e híbrida. Cada backend tem sua própria coleção no
+Chroma (`.data/chroma`).
+
+## Síntese com LLM (opcional)
+
+O padrão `extractive` lista as evidências sem chamar um serviço externo. Para usar um modelo local,
+instale o [Ollama](https://ollama.com), inicie o serviço e baixe um modelo pequeno:
+
+```bash
+ollama pull qwen2.5:1.5b-instruct
+RAG_GENERATION_BACKEND=ollama RAG_OLLAMA_MODEL=qwen2.5:1.5b-instruct \
+  paper-rag ask "Qual é a principal contribuição do artigo?" --show-steps
+```
+
+Se o serviço não iniciar pelo aplicativo, rode `ollama serve` em outro terminal.
+
+Para usar a API da OpenAI, instale a opção `openai` e configure a chave no ambiente; o uso da API
+pode gerar custos:
+
+```bash
+python -m pip install -e ".[openai]"
+export OPENAI_API_KEY="sua-chave"
+RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
+  paper-rag ask "Qual é a principal contribuição do artigo?"
+```
+
+Com LLM, o grafo avalia se os trechos ajudam (`RAG_GRADE_DOCUMENTS`) e, se nenhum ajudar,
+reescreve a pergunta até `RAG_MAX_REWRITES` vezes. As respostas devem citar os trechos como `[1]`,
+`[2]` etc.; se o modelo não fornecer citações válidas, o sistema mostra as evidências em vez de uma
+síntese sem referências.
 
 ## Qualidade
 
@@ -52,31 +99,4 @@ pytest
 ```
 
 O CI bloqueia regressões tanto na busca vetorial quanto na híbrida, usando perguntas diretas e
-parafraseadas. As decisões estão em
-[`docs/architecture.md`](docs/architecture.md).
-
-## Síntese com LLM (opcional)
-
-O padrão `extractive` lista as evidências sem chamar um serviço externo. Para usar um modelo local,
-instale o [Ollama](https://ollama.com), inicie o serviço e baixe um modelo pequeno:
-
-```bash
-ollama pull qwen2.5:1.5b-instruct
-RAG_GENERATION_BACKEND=ollama RAG_OLLAMA_MODEL=qwen2.5:1.5b-instruct \
-  paper-rag ask "Qual é a principal contribuição do artigo?"
-```
-
-Se o serviço não iniciar pelo aplicativo, rode `ollama serve` em outro terminal.
-
-O backend `ollama` não exige chave nem dependência Python extra. Para usar a API da OpenAI, instale o
-SDK opcional e configure a chave no ambiente; o uso da API pode gerar custos:
-
-```bash
-python -m pip install -e ".[openai]"
-export OPENAI_API_KEY="sua-chave"
-RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
-  paper-rag ask "Qual é a principal contribuição do artigo?"
-```
-
-As respostas devem citar os trechos como `[1]`, `[2]` etc. Se o modelo não fornecer citações válidas,
-o sistema volta a exibir as evidências, em vez de mostrar uma síntese sem referências.
+parafraseadas. A versão anterior, implementada sem frameworks, está na tag `v0.1.0-manual`.
