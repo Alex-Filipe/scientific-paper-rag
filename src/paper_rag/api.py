@@ -52,7 +52,9 @@ def create_app(service: RagService | None = None) -> FastAPI:
             path = Path(directory) / filename
             path.write_bytes(file.file.read())
             try:
-                count = rag.ingest_file(path, title=path.stem)
+                # The temporary path changes on every upload; the file name is the stable source,
+                # so uploading the same file again replaces it instead of duplicating it.
+                count = rag.ingest_file(path, title=path.stem, source=filename)
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
         return {"filename": filename, "chunks_created": count}

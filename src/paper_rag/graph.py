@@ -27,7 +27,8 @@ from paper_rag.generation import (
     extractive_answer,
     format_evidence,
     is_abstention,
-    parse_grades,
+    is_usable_query,
+    parse_grade,
 )
 from paper_rag.models import AnswerStatus, Step
 from paper_rag.retrieval import HybridSearch
@@ -68,17 +69,23 @@ class RagNodes:
         if self.llm is None or not self.grade_documents:
             return {"steps": [Step("grade", "Avaliação pulada (sem LLM ou desativada).")]}
 
-        reply = (GRADE_PROMPT | self.llm).invoke(
-            {"question": state["question"], "evidence": format_evidence(contexts)}
-        )
-        useful = parse_grades(reply.text, len(contexts))
-        if useful is None:
-            return {"steps": [Step("grade", "Resposta do avaliador ilegível; mantive todos.")]}
-        kept = [contexts[index - 1] for index in useful]
-        return {
-            "contexts": kept,
-            "steps": [Step("grade", f"{len(kept)} de {len(contexts)} trecho(s) úteis.")],
-        }
+        # Sequential calls keep replies aligned with chunks (and local servers serialize anyway).
+        chain = GRADE_PROMPT | self.llm
+        kept: list[Document] = []
+        unreadable = 0
+        for context in contexts:
+            reply = chain.invoke(
+                {"question": state["question"], "chunk": context.page_content[:4_000].strip()}
+            )
+            verdict = parse_grade(reply.text)
+            if verdict is None:
+                unreadable += 1
+            if verdict is not False:  # an unreadable verdict keeps the chunk
+                kept.append(context)
+        detail = f"{len(kept)} de {len(contexts)} trecho(s) úteis."
+        if unreadable:
+            detail += f" {unreadable} resposta(s) ilegível(is) do avaliador; trecho(s) mantido(s)."
+        return {"contexts": kept, "steps": [Step("grade", detail)]}
 
     def route_after_grade(self, state: RagState) -> Literal["generate", "rewrite", "abstain"]:
         if state["contexts"]:
@@ -90,11 +97,17 @@ class RagNodes:
     def rewrite(self, state: RagState) -> dict[str, Any]:
         assert self.llm is not None
         reply = (REWRITE_PROMPT | self.llm).invoke({"question": state["question"]})
-        new_query = reply.text.strip().strip("\"'“”") or state["question"]
+        candidate = reply.text.strip().strip("\"'“”")
+        if is_usable_query(candidate):
+            new_query = candidate
+            detail = f"Evidência fraca; nova consulta: “{new_query}”."
+        else:
+            new_query = state["question"].strip()
+            detail = f"Consulta reescrita inválida (“{candidate}”); mantive a pergunta original."
         return {
             "search_query": new_query,
             "rewrites": state.get("rewrites", 0) + 1,
-            "steps": [Step("rewrite", f"Evidência fraca; nova consulta: “{new_query}”.")],
+            "steps": [Step("rewrite", detail)],
         }
 
     def generate(self, state: RagState) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 import json
 
-from conftest import ServiceFactory
+from conftest import ServiceFactory, make_pdf
 from fastapi.testclient import TestClient
 
 from paper_rag.api import create_app
@@ -38,6 +38,24 @@ def test_upload_accepts_text_files(make_service: ServiceFactory) -> None:
 
     assert response.status_code == 201
     assert response.json() == {"filename": "notes.md", "chunks_created": 1}
+
+
+def test_upload_pdf_twice_replaces_it_and_cites_pages(make_service: ServiceFactory) -> None:
+    service = make_service()
+    client = TestClient(create_app(service))
+    pdf = make_pdf([["Deep residual networks."], ["The 152-layer ResNet reaches 4.49% error."]])
+
+    for _ in range(2):
+        response = client.post(
+            "/documents/upload", files={"file": ("resnet.pdf", pdf, "application/pdf")}
+        )
+        assert response.status_code == 201
+        assert response.json() == {"filename": "resnet.pdf", "chunks_created": 2}
+    body = client.post("/questions", json={"question": "152-layer error", "top_k": 1}).json()
+
+    assert service.search.index.count() == 2
+    citation = body["citations"][0]
+    assert (citation["source"], citation["title"], citation["page"]) == ("resnet.pdf", "resnet", 2)
 
 
 def test_upload_rejects_unsupported_files(make_service: ServiceFactory) -> None:

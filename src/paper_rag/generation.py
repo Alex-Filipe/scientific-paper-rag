@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 from collections.abc import Sequence
 from enum import StrEnum
 
@@ -51,15 +52,19 @@ CONCISE_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
+# One yes/no call per chunk: small models (qwen2.5:1.5b) do not reliably list chunk numbers,
+# and scientific papers are full of their own bracketed references such as [40].
 GRADE_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "Você avalia se trechos recuperados ajudam a responder uma pergunta. "
-            f"{UNTRUSTED_EVIDENCE} Responda somente com os números dos trechos úteis separados "
-            "por vírgula, por exemplo: 1, 3. Se nenhum trecho ajudar, responda: nenhum.",
+            "Você avalia se um trecho de artigo científico ajuda a responder uma pergunta. "
+            f"{UNTRUSTED_EVIDENCE} Responda somente sim ou não.",
         ),
-        ("human", "Pergunta:\n{question}\n\nTrechos:\n{evidence}"),
+        (
+            "human",
+            "Pergunta:\n{question}\n\nTrecho:\n{chunk}\n\nO trecho ajuda a responder a pergunta?",
+        ),
     ]
 )
 
@@ -69,7 +74,7 @@ REWRITE_PROMPT = ChatPromptTemplate.from_messages(
             "system",
             "Reescreva a pergunta como uma consulta de busca curta para artigos científicos, "
             "no mesmo idioma, trocando termos vagos por termos técnicos e sinônimos. "
-            "Responda somente com a consulta, sem explicações.",
+            "Não responda à pergunta. Responda somente com a consulta, sem explicações.",
         ),
         ("human", "{question}"),
     ]
@@ -111,15 +116,26 @@ def cited_indexes(text: str, context_count: int) -> list[int] | None:
     return sorted(set(indexes))
 
 
-def parse_grades(text: str, context_count: int) -> list[int] | None:
-    """Parse the grader's '1, 3' / 'nenhum' reply; None means the reply was unusable."""
-    normalized = text.strip().casefold()
-    if normalized.startswith(("nenhum", "none")):
-        return []
-    numbers = [int(value) for value in re.findall(r"\d+", normalized)]
-    if not numbers:
+def parse_grade(text: str) -> bool | None:
+    """Parse the grader's yes/no reply for one chunk; None means the reply was unusable."""
+    words = re.findall(r"\w+", _strip_accents(text.casefold()))
+    if not words:
         return None
-    return sorted({number for number in numbers if 1 <= number <= context_count})
+    if words[0] in {"sim", "yes"}:
+        return True
+    if words[0] in {"nao", "no"}:
+        return False
+    return None
+
+
+def is_usable_query(text: str) -> bool:
+    """A rewritten query must contain words; small models sometimes answer with a bare number."""
+    return any(any(char.isalpha() for char in word) for word in text.split())
+
+
+def _strip_accents(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
 def create_chat_model(settings: Settings) -> BaseChatModel | None:

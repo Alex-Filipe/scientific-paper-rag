@@ -12,7 +12,8 @@ from paper_rag.generation import (
     extractive_answer,
     format_evidence,
     is_abstention,
-    parse_grades,
+    is_usable_query,
+    parse_grade,
 )
 from paper_rag.settings import Settings
 
@@ -37,10 +38,27 @@ def test_cited_indexes_requires_valid_labels(answer: str, expected: list[int] | 
 
 @pytest.mark.parametrize(
     ("reply", "expected"),
-    [("1, 3", [1, 3]), ("Trechos 2", [2]), ("nenhum", []), ("None.", []), ("sim", None)],
+    [
+        ("Sim.", True),
+        ("yes", True),
+        ("Não", False),
+        ("nao, o trecho fala de outra coisa", False),
+        ("No.", False),
+        ("3, 5, 6, 7, 8", None),
+        ("talvez", None),
+        ("", None),
+    ],
 )
-def test_parse_grades(reply: str, expected: list[int] | None) -> None:
-    assert parse_grades(reply, context_count=3) == expected
+def test_parse_grade(reply: str, expected: bool | None) -> None:
+    assert parse_grade(reply) is expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("residual learning degradation", True), ("BLEU", True), ("0.195", False), ("  ", False)],
+)
+def test_is_usable_query(query: str, expected: bool) -> None:
+    assert is_usable_query(query) is expected
 
 
 def test_extractive_answer_lists_numbered_evidence() -> None:

@@ -1,4 +1,6 @@
 import hashlib
+import re
+import unicodedata
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -7,6 +9,8 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 SUPPORTED_SUFFIXES = frozenset({".pdf", ".txt", ".md"})
+_LOWERCASE = "a-zà-öø-ÿ"
+HYPHENATED_LINE_BREAK = re.compile(rf"(?<=[{_LOWERCASE}])-[ \t]*\n[ \t]*(?=[{_LOWERCASE}])")
 
 
 class PaperLoader(BaseLoader):
@@ -30,9 +34,18 @@ class PaperLoader(BaseLoader):
 
         for page_number, page in enumerate(PdfReader(self.path).pages):
             yield Document(
-                page_content=page.extract_text() or "",
+                page_content=clean_pdf_text(page.extract_text() or ""),
                 metadata={"source": source, "page": page_number},
             )
+
+
+def clean_pdf_text(text: str) -> str:
+    """Undo PDF typesetting: ligatures (ﬁ -> fi) and words hyphenated across lines.
+
+    Only lowercase-lowercase breaks are joined, so "learn-\\ning" becomes "learning"; a compound
+    split at the line end ("high-\\nlevel") also loses its hyphen, an accepted trade-off.
+    """
+    return HYPHENATED_LINE_BREAK.sub("", unicodedata.normalize("NFKC", text))
 
 
 def count_words(text: str) -> int:

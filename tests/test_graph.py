@@ -43,7 +43,7 @@ def test_empty_corpus_abstains(make_service: ServiceFactory) -> None:
 
 
 def test_llm_answer_with_valid_citation(service: RagService, with_fake_llm: InstallLLM) -> None:
-    with_fake_llm(service, ["1", "RAG combina recuperação e geração [1]."])
+    with_fake_llm(service, ["Sim.", "RAG combina recuperação e geração [1]."])
 
     answer = service.ask("O que é RAG?")
 
@@ -57,7 +57,7 @@ def test_llm_answer_with_valid_citation(service: RagService, with_fake_llm: Inst
 def test_invalid_citations_fall_back_to_evidence(
     service: RagService, with_fake_llm: InstallLLM, reply: str
 ) -> None:
-    with_fake_llm(service, ["1", reply])
+    with_fake_llm(service, ["sim", reply])
 
     answer = service.ask("O que é RAG?")
 
@@ -67,7 +67,7 @@ def test_invalid_citations_fall_back_to_evidence(
 
 
 def test_model_abstention_is_preserved(service: RagService, with_fake_llm: InstallLLM) -> None:
-    with_fake_llm(service, ["1", ABSTENTION_ANSWER])
+    with_fake_llm(service, ["sim", ABSTENTION_ANSWER])
 
     answer = service.ask("O que é RAG?")
 
@@ -78,7 +78,7 @@ def test_model_abstention_is_preserved(service: RagService, with_fake_llm: Insta
 def test_weak_evidence_triggers_query_rewrite(
     service: RagService, with_fake_llm: InstallLLM
 ) -> None:
-    with_fake_llm(service, ["nenhum", "semantic retrieval embeddings", "1", "Usa embeddings [1]."])
+    with_fake_llm(service, ["Não", "semantic retrieval embeddings", "sim", "Usa embeddings [1]."])
 
     answer = service.ask("Como funciona?")
 
@@ -95,7 +95,7 @@ def test_weak_evidence_triggers_query_rewrite(
 
 
 def test_rewrites_are_bounded(service: RagService, with_fake_llm: InstallLLM) -> None:
-    with_fake_llm(service, ["nenhum", "outra consulta", "nenhum"], max_rewrites=1)
+    with_fake_llm(service, ["não", "outra consulta", "não"], max_rewrites=1)
 
     answer = service.ask("Pergunta sem resposta")
 
@@ -113,10 +113,36 @@ def test_unreadable_grade_keeps_all_chunks(service: RagService, with_fake_llm: I
     assert "ilegível" in answer.steps[1].detail
 
 
+def test_grade_judges_each_chunk(service: RagService, with_fake_llm: InstallLLM) -> None:
+    service.ingest_text("Chunking", "Chunking splits papers into retrieval units.", "chunk.md")
+    retrieved = service.retrieve("retrieval", 4)
+    assert len(retrieved) == 2
+    with_fake_llm(service, ["não", "sim", "Resposta [1]."])
+
+    answer = service.ask("retrieval")
+
+    assert [citation.chunk_id for citation in answer.citations] == [
+        retrieved[1].metadata["chunk_id"]
+    ]
+    assert answer.steps[1].detail == "1 de 2 trecho(s) úteis."
+
+
+def test_rewrite_without_words_keeps_original_question(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    with_fake_llm(service, ["não", "0.195", "não"], max_rewrites=1)
+
+    answer = service.ask("Qual é o BLEU?")
+
+    assert answer.status is AnswerStatus.ABSTAINED
+    assert answer.search_query == "Qual é o BLEU?"
+    assert "inválida" in answer.steps[2].detail
+
+
 def test_stream_emits_steps_tokens_and_answer(
     service: RagService, with_fake_llm: InstallLLM
 ) -> None:
-    with_fake_llm(service, ["1", "Resposta [1]."])
+    with_fake_llm(service, ["sim", "Resposta [1]."])
 
     events = list(service.stream("O que é RAG?"))
 

@@ -32,8 +32,12 @@ class RagService:
     def ingest_text(self, title: str, text: str, source: str) -> int:
         return self._ingest([Document(page_content=text)], title=title, source=source)
 
-    def ingest_file(self, path: Path, title: str | None = None) -> int:
-        return self._ingest(load_file(path), title=title or path.stem, source=str(path))
+    def ingest_file(self, path: Path, title: str | None = None, source: str | None = None) -> int:
+        """Ingest a file; `source` (default: absolute path) and title identify the document,
+        so ingesting the same source again replaces it instead of duplicating it."""
+        return self._ingest(
+            load_file(path), title=title or path.stem, source=source or str(path.resolve())
+        )
 
     def retrieve(self, question: str, top_k: int) -> list[Document]:
         return self.search.search(question, top_k)
