@@ -1,0 +1,134 @@
+from collections.abc import Callable, Sequence
+
+import pytest
+from conftest import ServiceFactory
+
+from paper_rag.generation import ABSTENTION_ANSWER
+from paper_rag.models import AnswerStatus
+from paper_rag.service import RagService
+
+InstallLLM = Callable[..., object]
+PAPER = (
+    "RAG combines document retrieval with language generation. "
+    "Embeddings support semantic retrieval from a document collection."
+)
+
+
+@pytest.fixture
+def service(make_service: ServiceFactory) -> RagService:
+    rag = make_service()
+    rag.ingest_text("Retrieval-Augmented Generation", PAPER, "paper.md")
+    return rag
+
+
+def nodes(answer_steps: Sequence[object]) -> list[str]:
+    return [step.node for step in answer_steps]  # type: ignore[attr-defined]
+
+
+def test_extractive_flow_lists_evidence(service: RagService) -> None:
+    answer = service.ask("How does retrieval use embeddings?")
+
+    assert answer.status is AnswerStatus.EXTRACTIVE
+    assert answer.citations[0].title == "Retrieval-Augmented Generation"
+    assert "embeddings" in answer.text.lower()
+    assert nodes(answer.steps) == ["retrieve", "grade", "generate"]
+
+
+def test_empty_corpus_abstains(make_service: ServiceFactory) -> None:
+    answer = make_service().ask("What is RAG?")
+
+    assert answer.status is AnswerStatus.ABSTAINED
+    assert answer.text == ABSTENTION_ANSWER
+    assert not answer.citations
+
+
+def test_llm_answer_with_valid_citation(service: RagService, with_fake_llm: InstallLLM) -> None:
+    with_fake_llm(service, ["1", "RAG combina recuperação e geração [1]."])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.text == "RAG combina recuperação e geração [1]."
+    assert answer.citations[0].cited is True
+    assert nodes(answer.steps) == ["retrieve", "grade", "validate"]
+
+
+@pytest.mark.parametrize("reply", ["Resposta sem referência.", "Resposta [9]."])
+def test_invalid_citations_fall_back_to_evidence(
+    service: RagService, with_fake_llm: InstallLLM, reply: str
+) -> None:
+    with_fake_llm(service, ["1", reply])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.FALLBACK
+    assert answer.text.startswith("Evidências mais relevantes encontradas:")
+    assert reply not in answer.text
+
+
+def test_model_abstention_is_preserved(service: RagService, with_fake_llm: InstallLLM) -> None:
+    with_fake_llm(service, ["1", ABSTENTION_ANSWER])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.ABSTAINED
+    assert answer.text == ABSTENTION_ANSWER
+
+
+def test_weak_evidence_triggers_query_rewrite(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    with_fake_llm(service, ["nenhum", "semantic retrieval embeddings", "1", "Usa embeddings [1]."])
+
+    answer = service.ask("Como funciona?")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.search_query == "semantic retrieval embeddings"
+    assert nodes(answer.steps) == [
+        "retrieve",
+        "grade",
+        "rewrite",
+        "retrieve",
+        "grade",
+        "validate",
+    ]
+
+
+def test_rewrites_are_bounded(service: RagService, with_fake_llm: InstallLLM) -> None:
+    with_fake_llm(service, ["nenhum", "outra consulta", "nenhum"], max_rewrites=1)
+
+    answer = service.ask("Pergunta sem resposta")
+
+    assert answer.status is AnswerStatus.ABSTAINED
+    assert nodes(answer.steps).count("rewrite") == 1
+    assert nodes(answer.steps)[-1] == "abstain"
+
+
+def test_unreadable_grade_keeps_all_chunks(service: RagService, with_fake_llm: InstallLLM) -> None:
+    with_fake_llm(service, ["talvez", "RAG combina recuperação e geração [1]."])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert "ilegível" in answer.steps[1].detail
+
+
+def test_stream_emits_steps_tokens_and_answer(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    with_fake_llm(service, ["1", "Resposta [1]."])
+
+    events = list(service.stream("O que é RAG?"))
+
+    kinds = [event["event"] for event in events]
+    assert kinds[0] == "step"
+    assert "token" in kinds
+    assert kinds[-1] == "answer"
+    streamed = "".join(event["data"]["text"] for event in events if event["event"] == "token")
+    assert streamed == "Resposta [1]."
+    assert events[-1]["data"]["status"] == "answered"
+
+
+def test_stream_validates_before_running(service: RagService) -> None:
+    with pytest.raises(ValueError, match="empty"):
+        service.stream("   ")

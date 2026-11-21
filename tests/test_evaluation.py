@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from paper_rag.bootstrap import build_container
 from paper_rag.evaluation.dataset import load_dataset
 from paper_rag.evaluation.metrics import recall_at_k, reciprocal_rank
 from paper_rag.evaluation.runner import RetrievalEvaluator
+from paper_rag.service import build_service
 from paper_rag.settings import Settings
 
 BASELINE_DATASET = Path("evaluation/retrieval_baseline.json")
@@ -28,8 +28,7 @@ def test_metrics_require_relevant_sources() -> None:
 
 def test_baseline_retrieval_quality(tmp_path: Path) -> None:
     dataset = load_dataset(BASELINE_DATASET)
-    container = build_container(Settings(database_path=tmp_path / "evaluation.db"))
-    evaluator = RetrievalEvaluator(container.ingest_document, container.retrieve_chunks)
+    evaluator = RetrievalEvaluator(build_service(Settings(chroma_dir=tmp_path / "chroma")))
 
     report = evaluator.run(dataset, top_k=3)
 

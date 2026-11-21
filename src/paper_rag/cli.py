@@ -6,11 +6,10 @@ from typing import Annotated
 
 import typer
 
-from paper_rag.adapters.parsing import parse_file
-from paper_rag.bootstrap import build_container
 from paper_rag.evaluation.dataset import load_dataset
 from paper_rag.evaluation.models import RetrievalReport
 from paper_rag.evaluation.runner import RetrievalEvaluator
+from paper_rag.service import build_service
 from paper_rag.settings import Settings
 
 app = typer.Typer(help="Ingest and query scientific papers.", no_args_is_help=True)
@@ -34,12 +33,7 @@ def ingest(
     title: Annotated[str | None, typer.Option(help="Document title.")] = None,
 ) -> None:
     """Ingest one PDF, Markdown, or text document."""
-    text = parse_file(path)
-    count = build_container().ingest_document.execute(
-        title=title or path.stem,
-        text=text,
-        source=str(path),
-    )
+    count = build_service().ingest_file(path, title=title)
     typer.echo(f"Ingested {count} chunks from {path.name}.")
 
 
@@ -47,14 +41,26 @@ def ingest(
 def ask(
     question: Annotated[str, typer.Argument(help="Question about the indexed papers.")],
     top_k: Annotated[int | None, typer.Option(min=1, max=20)] = None,
+    show_steps: Annotated[bool, typer.Option(help="Print the LangGraph steps.")] = False,
 ) -> None:
     """Ask a question and print the answer with its retrieved sources."""
-    answer = build_container().ask_question.execute(question, top_k)
+    try:
+        answer = build_service().ask(question, top_k)
+    except (ConnectionError, RuntimeError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    if show_steps:
+        for step in answer.steps:
+            typer.echo(f"· {step.node}: {step.detail}")
+        typer.echo()
     typer.echo(answer.text)
     if answer.citations:
         typer.echo("\nSources:")
-        for index, citation in enumerate(answer.citations, start=1):
-            typer.echo(f"[{index}] {citation.title} — {citation.source} ({citation.score:.3f})")
+        for citation in answer.citations:
+            page = f", p. {citation.page}" if citation.page else ""
+            marker = "*" if citation.cited else " "
+            typer.echo(f"[{citation.index}]{marker} {citation.title} — {citation.source}{page}")
 
 
 @app.command()
@@ -93,15 +99,14 @@ def evaluate(
                 label = f"{backend}/{mode}"
                 run_settings = replace(
                     configured,
-                    database_path=Path(directory) / f"{backend}-{mode}.db",
+                    chroma_dir=Path(directory) / f"{backend}-{mode}",
                     embedding_backend=backend,
                     retrieval_mode=mode,
+                    generation_backend="extractive",
                 )
-                container = build_container(run_settings)
-                reports[label] = RetrievalEvaluator(
-                    ingest_document=container.ingest_document,
-                    retrieve_chunks=container.retrieve_chunks,
-                ).run(evaluation_dataset, top_k)
+                reports[label] = RetrievalEvaluator(build_service(run_settings)).run(
+                    evaluation_dataset, top_k
+                )
 
     for label, report in reports.items():
         typer.echo(f"[{label}]")

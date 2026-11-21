@@ -3,12 +3,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on", "sim"}
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
-    database_path: Path = Path(".data/rag.db")
+    chroma_dir: Path = Path(".data/chroma")
     chunk_size: int = 220
     chunk_overlap: int = 40
     top_k: int = 4
+    candidate_k: int = 20
     embedding_backend: str = "hashing"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     model_cache_dir: Path = Path(".data/models")
@@ -17,23 +25,26 @@ class Settings:
     openai_model: str = "gpt-6-astra"
     ollama_model: str = "qwen2.5:1.5b-instruct"
     ollama_base_url: str = "http://localhost:11434"
+    grade_documents: bool = True
+    max_rewrites: int = 1
 
     @classmethod
     def from_environment(cls) -> "Settings":
+        defaults = cls()
         return cls(
-            database_path=Path(os.getenv("RAG_DB_PATH", ".data/rag.db")),
-            chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "220")),
-            chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "40")),
-            top_k=int(os.getenv("RAG_TOP_K", "4")),
-            embedding_backend=os.getenv("RAG_EMBEDDING_BACKEND", "hashing"),
-            embedding_model=os.getenv(
-                "RAG_EMBEDDING_MODEL",
-                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            ),
-            model_cache_dir=Path(os.getenv("RAG_MODEL_CACHE_DIR", ".data/models")),
-            retrieval_mode=os.getenv("RAG_RETRIEVAL_MODE", "hybrid"),
-            generation_backend=os.getenv("RAG_GENERATION_BACKEND", "extractive"),
-            openai_model=os.getenv("RAG_OPENAI_MODEL", "gpt-6-astra"),
-            ollama_model=os.getenv("RAG_OLLAMA_MODEL", "qwen2.5:1.5b-instruct"),
-            ollama_base_url=os.getenv("RAG_OLLAMA_BASE_URL", "http://localhost:11434"),
+            chroma_dir=Path(os.getenv("RAG_CHROMA_DIR", str(defaults.chroma_dir))),
+            chunk_size=int(os.getenv("RAG_CHUNK_SIZE", str(defaults.chunk_size))),
+            chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", str(defaults.chunk_overlap))),
+            top_k=int(os.getenv("RAG_TOP_K", str(defaults.top_k))),
+            candidate_k=int(os.getenv("RAG_CANDIDATE_K", str(defaults.candidate_k))),
+            embedding_backend=os.getenv("RAG_EMBEDDING_BACKEND", defaults.embedding_backend),
+            embedding_model=os.getenv("RAG_EMBEDDING_MODEL", defaults.embedding_model),
+            model_cache_dir=Path(os.getenv("RAG_MODEL_CACHE_DIR", str(defaults.model_cache_dir))),
+            retrieval_mode=os.getenv("RAG_RETRIEVAL_MODE", defaults.retrieval_mode),
+            generation_backend=os.getenv("RAG_GENERATION_BACKEND", defaults.generation_backend),
+            openai_model=os.getenv("RAG_OPENAI_MODEL", defaults.openai_model),
+            ollama_model=os.getenv("RAG_OLLAMA_MODEL", defaults.ollama_model),
+            ollama_base_url=os.getenv("RAG_OLLAMA_BASE_URL", defaults.ollama_base_url),
+            grade_documents=_env_bool("RAG_GRADE_DOCUMENTS", defaults.grade_documents),
+            max_rewrites=int(os.getenv("RAG_MAX_REWRITES", str(defaults.max_rewrites))),
         )

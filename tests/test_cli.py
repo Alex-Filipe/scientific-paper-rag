@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
 from paper_rag.cli import app
@@ -70,3 +71,18 @@ def test_evaluate_command_fails_quality_gate(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "Gate failed" in result.stderr
+
+
+def test_ingest_and_ask_commands(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_CHROMA_DIR", str(tmp_path / "chroma"))
+    paper = tmp_path / "paper.md"
+    paper.write_text("Chunking keeps context across boundaries.", encoding="utf-8")
+
+    ingested = runner.invoke(app, ["ingest", str(paper), "--title", "Chunking"])
+    answered = runner.invoke(app, ["ask", "What keeps context?", "--show-steps"])
+
+    assert ingested.exit_code == 0
+    assert "Ingested 1 chunks" in ingested.stdout
+    assert answered.exit_code == 0
+    assert "retrieve:" in answered.stdout
+    assert "[1]  Chunking" in answered.stdout

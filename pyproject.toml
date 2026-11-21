@@ -4,13 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scientific-paper-rag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backend-first RAG for querying scientific papers with traceable citations."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1.0",
+  "langchain-chroma>=1.1,<2.0",
+  "langchain-core>=1.8,<2.0",
+  "langchain-ollama>=1.1,<2.0",
+  "langchain-text-splitters>=1.1,<2.0",
+  "langgraph>=1.2,<2.0",
   "pypdf>=5.0,<6.0",
+  "python-multipart>=0.0.20,<1.0",
+  "rank-bm25>=0.2,<0.3",
   "typer>=0.15,<1.0",
   "uvicorn>=0.34,<1.0",
 ]
@@ -24,7 +31,7 @@ dev = [
   "ruff>=0.9,<1.0",
 ]
 semantic = ["fastembed>=0.8,<0.9"]
-openai = ["openai>=1.100,<3.0"]
+openai = ["langchain-openai>=1.8,<2.0"]
 
 [project.scripts]
 paper-rag = "paper_rag.cli:app"
@@ -51,6 +58,6 @@ files = ["src/paper_rag"]
 follow_imports_for_stubs = true
 
 [[tool.mypy.overrides]]
-module = ["fastembed", "fastembed.*", "numpy", "numpy.*"]
+module = ["fastembed", "fastembed.*", "numpy", "numpy.*", "rank_bm25", "rank_bm25.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
