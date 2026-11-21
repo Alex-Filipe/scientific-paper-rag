@@ -173,6 +173,7 @@ class GenerationEvaluator:
     embedding: str
     top_k: int
     before_case: Callable[[], None] | None = None
+    grader_model: str = ""
     """Runs before each question, outside the timing (e.g. `reset_ollama_cache`)."""
 
     def ingest(self, dataset: GenerationDataset, papers_dir: Path) -> None:
@@ -224,6 +225,7 @@ class GenerationEvaluator:
         answered = answer.status is AnswerStatus.ANSWERED
         return GenerationRecord(
             model=self.model,
+            grader_model=self.grader_model or self.model,
             embedding=self.embedding,
             config=config,
             top_k=self.top_k,

@@ -158,3 +158,28 @@ def test_stream_emits_steps_tokens_and_answer(
 def test_stream_validates_before_running(service: RagService) -> None:
     with pytest.raises(ValueError, match="empty"):
         service.stream("   ")
+
+
+def test_separate_grader_handles_grade_and_rewrite(service: RagService) -> None:
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from paper_rag.generation import GenerationBackend
+    from paper_rag.graph import RagNodes, build_graph
+
+    generator = FakeListChatModel(responses=["RAG combina recuperação e geração [1]."])
+    grader = FakeListChatModel(responses=["não", "retrieval augmented generation", "sim"])
+    service.graph = build_graph(
+        RagNodes(
+            search=service.search,
+            llm=generator,
+            backend=GenerationBackend.OLLAMA,
+            max_rewrites=1,
+            grader=grader,
+        )
+    )
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.search_query == "retrieval augmented generation"
+    assert nodes(answer.steps) == ["retrieve", "grade", "rewrite", "retrieve", "grade", "validate"]

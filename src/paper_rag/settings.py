@@ -25,8 +25,12 @@ class Settings:
     openai_model: str = "gpt-6-astra"
     ollama_model: str = "qwen2.5:1.5b-instruct"
     ollama_base_url: str = "http://localhost:11434"
-    grade_documents: bool = True
-    max_rewrites: int = 1
+    # Linear by default: with qwen2.5:1.5b the grader kept gold and other chunks alike (27%)
+    # and turned right answers into abstentions; see docs/architecture.md.
+    grade_documents: bool = False
+    max_rewrites: int = 0
+    grader_model: str = ""
+    """Model for the grade and rewrite nodes; empty means the generation model."""
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -47,4 +51,5 @@ class Settings:
             ollama_base_url=os.getenv("RAG_OLLAMA_BASE_URL", defaults.ollama_base_url),
             grade_documents=_env_bool("RAG_GRADE_DOCUMENTS", defaults.grade_documents),
             max_rewrites=int(os.getenv("RAG_MAX_REWRITES", str(defaults.max_rewrites))),
+            grader_model=os.getenv("RAG_GRADER_MODEL", defaults.grader_model),
         )

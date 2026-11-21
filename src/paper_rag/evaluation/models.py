@@ -114,6 +114,7 @@ class GenerationRecord:
     """One question answered once by one configuration (a line of the results JSONL)."""
 
     model: str
+    grader_model: str
     embedding: str
     config: str
     top_k: int
@@ -154,6 +155,7 @@ class GenerationRecord:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "GenerationRecord":
         values = dict(data)
+        values.setdefault("grader_model", values["model"])  # files written before the option
         values["verdict"] = Verdict(values["verdict"])
         values["grade"] = GradeAudit(**values["grade"])
         for field in ("cited", "cited_pages", "steps"):

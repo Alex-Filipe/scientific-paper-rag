@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 import paper_rag.cli as cli
 from paper_rag.evaluation.dataset import load_generation_dataset
 from paper_rag.evaluation.metrics import contains_evidence, contains_fact, verdict_for
-from paper_rag.evaluation.models import Evidence, GenerationDataset, Verdict
+from paper_rag.evaluation.models import Evidence, GenerationDataset, GenerationRecord, Verdict
 from paper_rag.evaluation.report import format_report, load_records
 from paper_rag.evaluation.runner import (
     GENERATION_CONFIGS,
@@ -229,6 +229,9 @@ def test_run_interleaves_configs_and_reports(
     results = tmp_path / "results.jsonl"
     results.write_text("\n".join(json.dumps(record.to_dict()) for record in records))
     assert load_records(results) == records
+    assert records[0].grader_model == "fake"
+    legacy = {key: value for key, value in records[0].to_dict().items() if key != "grader_model"}
+    assert GenerationRecord.from_dict(legacy).grader_model == "fake"  # older JSONL files
     report = format_report(records)
     assert "| Metric | linear | grade |" in report
     assert "| Correct abstention (unanswerable) | 100% ± 0 (100%–100%) |" in report

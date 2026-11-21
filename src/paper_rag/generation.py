@@ -138,8 +138,15 @@ def _strip_accents(text: str) -> str:
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
-def create_chat_model(settings: Settings) -> BaseChatModel | None:
-    """Build the configured chat model; the extractive backend needs none."""
+def create_grader_model(settings: Settings) -> BaseChatModel | None:
+    """A separate model for grade and rewrite (`RAG_GRADER_MODEL`); None reuses the generator."""
+    if not settings.grader_model.strip():
+        return None
+    return create_chat_model(settings, model=settings.grader_model)
+
+
+def create_chat_model(settings: Settings, model: str | None = None) -> BaseChatModel | None:
+    """Build the configured chat model (or `model` on the same backend); extractive needs none."""
     try:
         backend = GenerationBackend(settings.generation_backend)
     except ValueError as error:
@@ -156,7 +163,7 @@ def create_chat_model(settings: Settings) -> BaseChatModel | None:
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model=settings.ollama_model.strip(),
+            model=(model or settings.ollama_model).strip(),
             base_url=settings.ollama_base_url.strip(),
             temperature=0.0,
             num_predict=512,
@@ -174,7 +181,7 @@ def create_chat_model(settings: Settings) -> BaseChatModel | None:
         ) from error
 
     return ChatOpenAI(
-        model=settings.openai_model.strip(),
+        model=(model or settings.openai_model).strip(),
         use_responses_api=True,
         max_tokens=512,  # type: ignore[call-arg]
     )

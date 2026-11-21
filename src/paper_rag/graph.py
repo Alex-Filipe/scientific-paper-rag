@@ -53,6 +53,13 @@ class RagNodes:
     backend: GenerationBackend
     grade_documents: bool = True
     max_rewrites: int = 1
+    grader: BaseChatModel | None = None
+    """Model for grade and rewrite; None uses `llm`."""
+
+    @property
+    def judge(self) -> BaseChatModel:
+        assert self.llm is not None
+        return self.grader or self.llm
 
     def retrieve(self, state: RagState) -> dict[str, Any]:
         query = state["search_query"]
@@ -70,7 +77,7 @@ class RagNodes:
             return {"steps": [Step("grade", "Avaliação pulada (sem LLM ou desativada).")]}
 
         # Sequential calls keep replies aligned with chunks (and local servers serialize anyway).
-        chain = GRADE_PROMPT | self.llm
+        chain = GRADE_PROMPT | self.judge
         kept: list[Document] = []
         unreadable = 0
         for context in contexts:
@@ -95,8 +102,7 @@ class RagNodes:
         return "abstain"
 
     def rewrite(self, state: RagState) -> dict[str, Any]:
-        assert self.llm is not None
-        reply = (REWRITE_PROMPT | self.llm).invoke({"question": state["question"]})
+        reply = (REWRITE_PROMPT | self.judge).invoke({"question": state["question"]})
         candidate = reply.text.strip().strip("\"'“”")
         if is_usable_query(candidate):
             new_query = candidate

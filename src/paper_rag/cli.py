@@ -234,11 +234,14 @@ def evaluate_generation(
     )
     results.parent.mkdir(parents=True, exist_ok=True)
 
+    grader_model = configured.grader_model.strip()
     before_case = None
     if cold and configured.generation_backend == "ollama":
+        loaded = list(dict.fromkeys(filter(None, (configured.ollama_model, grader_model))))
 
         def before_case() -> None:
-            reset_ollama_cache(configured.ollama_base_url, configured.ollama_model)
+            for name in loaded:
+                reset_ollama_cache(configured.ollama_base_url, name)
 
     records: list[GenerationRecord] = []
     try:
@@ -276,6 +279,7 @@ def evaluate_generation(
                     embedding=backend,
                     top_k=top_k,
                     before_case=before_case,
+                    grader_model=grader_model,
                 )
                 evaluator.ingest(evaluation_dataset, papers_dir or dataset.parent)
                 if before_case is None:  # warm-up, so the first latency excludes model loading

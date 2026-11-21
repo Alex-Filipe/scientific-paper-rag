@@ -9,6 +9,7 @@ from paper_rag.generation import (
     GRADE_PROMPT,
     cited_indexes,
     create_chat_model,
+    create_grader_model,
     extractive_answer,
     format_evidence,
     is_abstention,
@@ -125,3 +126,25 @@ def test_settings_load_from_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.generation_backend == "ollama"
     assert settings.candidate_k == 30
     assert settings.grade_documents is False
+
+
+def test_linear_flow_is_the_default() -> None:
+    settings = Settings()
+
+    assert settings.grade_documents is False
+    assert settings.max_rewrites == 0
+    assert create_grader_model(Settings(generation_backend="ollama")) is None
+
+
+def test_grader_model_uses_the_same_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_GENERATION_BACKEND", "ollama")
+    monkeypatch.setenv("RAG_GRADER_MODEL", "qwen2.5:7b-instruct")
+
+    settings = Settings.from_environment()
+    grader = create_grader_model(settings)
+    generator = create_chat_model(settings)
+
+    assert isinstance(grader, ChatOllama)
+    assert grader.model == "qwen2.5:7b-instruct"
+    assert isinstance(generator, ChatOllama)
+    assert generator.model == "qwen2.5:1.5b-instruct"

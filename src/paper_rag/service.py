@@ -12,7 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from paper_rag.documents import load_file, make_splitter, split_into_chunks
 from paper_rag.embeddings import create_embeddings
-from paper_rag.generation import GenerationBackend, create_chat_model
+from paper_rag.generation import GenerationBackend, create_chat_model, create_grader_model
 from paper_rag.graph import RagNodes, RagState, build_graph
 from paper_rag.models import Answer, AnswerStatus, Citation, Step
 from paper_rag.retrieval import HybridSearch, RetrievalMode
@@ -178,6 +178,7 @@ def build_service(settings: Settings | None = None) -> RagService:
         backend=GenerationBackend(resolved.generation_backend),
         grade_documents=resolved.grade_documents,
         max_rewrites=resolved.max_rewrites,
+        grader=create_grader_model(resolved),
     )
     return RagService(
         search=search,
