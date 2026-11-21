@@ -8,7 +8,7 @@ Monólito modular em Python. O pipeline usa os pacotes mantidos do ecossistema L
 
 ```text
 ingestão:  arquivo -> PaperLoader -> RecursiveCharacterTextSplitter -> embeddings -> Chroma
-pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate | abstain)
+pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate -> validate | abstain)
 ```
 
 Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve -> generate`); a
@@ -32,7 +32,8 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 ## Grafo LangGraph
 
 ```text
-START -> retrieve -> grade --(há trechos úteis)--> generate -> END
+START -> retrieve -> grade --(há trechos úteis)--> generate --(resposta do LLM)--> validate -> END
+                       |                                \--(extrativo ou abstenção)--> END
                        |--(nenhum útil e ainda pode reescrever)--> rewrite -> retrieve
                        \--(nenhum útil)--> abstain -> END
 ```
@@ -45,8 +46,12 @@ START -> retrieve -> grade --(há trechos úteis)--> generate -> END
   (padrão `0`). `grade` e `rewrite` podem usar outro modelo com `RAG_GRADER_MODEL`.
   Se a consulta reescrita não tiver palavras (por exemplo, só um número), a pergunta original é
   mantida.
-- **generate:** sem LLM, lista as evidências (`extractive`). Com LLM, exige citações `[n]`
-  válidas; se faltarem ou apontarem para trechos inexistentes, mostra as evidências (`fallback`).
+- **generate:** sem LLM, lista as evidências (`extractive`). Com LLM, gera um rascunho; se o
+  modelo se abstiver, termina aí.
+- **validate:** aceita o rascunho só se as citações `[n]` existirem e se todo número da resposta
+  aparecer na pergunta ou nos trechos citados (`RAG_VALIDATE_NUMBERS`, padrão `true`). A
+  comparação aceita formatos diferentes (`4,49`/`4.49`, `50.000`/`50k`, `1,7 milhão`/`1.7M`) e
+  ignora as referências do artigo (`[10, 41]`). Se falhar, mostra as evidências (`fallback`).
 - **abstain:** responde que não há evidência suficiente.
 
 Cada nó registra um `Step`. Em `POST /questions/stream` os passos chegam como eventos `step`, os
@@ -85,6 +90,9 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
    perguntas, mas cada pergunta leva ~15 s; fica como opção, não como padrão.
 10. **Avaliação da geração fora do CI:** depende do Ollama e leva cerca de 4 s por pergunta. Os
     testes cobrem o avaliador com um LLM falso.
+11. **Validação como nó próprio:** a validação saiu de dentro do `generate` e virou o nó
+    `validate`, com uma checagem a mais: números sem suporte nos trechos citados. É uma regra
+    lexical, sem LLM, que custa microssegundos.
 
 ## Teste com artigo real
 
@@ -127,7 +135,8 @@ ativo, 2 de 156 respostas mudaram. A variação entre rodadas vista no teste ant
 não da amostragem.
 
 **Resultados** (vereditos revisados à mão; o juiz lexical concordou em 48 de 64 respostas
-distintas, sendo generoso nas vagas e rígido em traduções):
+distintas, sendo generoso nas vagas e rígido em traduções). As tabelas de configurações foram
+medidas antes do nó `validate`; o efeito dele está no fim da seção.
 
 | | linear | grade | grade + rewrite |
 |---|---|---|---|
@@ -189,6 +198,22 @@ prefere não receber respostas inventadas pode usar `RAG_GRADE_DOCUMENTS=true` c
 fica desligado nos dois casos. O prompt do avaliador foi escolhido com as mesmas perguntas do
 teste, então os números do 7B são um pouco otimistas.
 
+**Validação de números.** Com o fluxo linear (cache limpo, uma rodada, mesmos rascunhos do
+gerador), o nó `validate` trocou 11 de 52 respostas por evidências:
+
+| | hashing | semantic |
+|---|---|---|
+| Erradas ou inventadas → evidências | 2 | 4 |
+| Corretas → evidências | 2 | 3 |
+| Corretas / erradas + inventadas, antes → depois | 8 / 10 → 6 / 8 | 9 / 11 → 6 / 7 |
+
+As 5 corretas perdidas tinham o número certo com a citação errada (4 casos, por exemplo o 28,54%
+citado como [1] quando estava em [2]) ou um detalhe inventado ("ResNet-101 venceu a
+classificação"). O validador fez o que promete, pois a citação não sustentava o número, e o
+`fallback` mostra os trechos, inclusive o certo. Fica ligado por padrão porque o projeto promete
+citações rastreáveis. Ele não pega números copiados da linha errada do trecho citado (o 5,71% da
+Tabela 3 no lugar do 4,49%), nem respostas sem números.
+
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
 Mesmos datasets, `top_k=3`:
@@ -206,8 +231,8 @@ medir qualidade em artigos reais.
 
 ## Próximas melhorias planejadas
 
-1. Validação de suporte: conferir se os números da resposta aparecem no trecho citado, para
-   reduzir as respostas erradas com citação válida.
+1. Corrigir a citação quando o número da resposta está em outro trecho recuperado, em vez de
+   cair no `fallback` (recuperaria 4 das 5 respostas corretas recusadas pelo `validate`).
 2. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
 3. Reranker entre a busca e o grafo.
 4. Tela consumindo a API (resposta estruturada e SSE já disponíveis).

@@ -8,7 +8,8 @@ class AnswerStatus(StrEnum):
     EXTRACTIVE = "extractive"
     """No LLM configured: the answer lists the retrieved evidence."""
     FALLBACK = "fallback"
-    """The LLM answer had missing or invalid citations, so the evidence is shown instead."""
+    """The LLM answer had missing or invalid citations, or numbers its cited chunks do not
+    contain, so the evidence is shown instead."""
     ABSTAINED = "abstained"
     """No sufficient evidence was found."""
 

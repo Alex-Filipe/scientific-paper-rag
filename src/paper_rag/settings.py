@@ -31,6 +31,7 @@ class Settings:
     max_rewrites: int = 0
     grader_model: str = ""
     """Model for the grade and rewrite nodes; empty means the generation model."""
+    validate_numbers: bool = True
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -52,4 +53,5 @@ class Settings:
             grade_documents=_env_bool("RAG_GRADE_DOCUMENTS", defaults.grade_documents),
             max_rewrites=int(os.getenv("RAG_MAX_REWRITES", str(defaults.max_rewrites))),
             grader_model=os.getenv("RAG_GRADER_MODEL", defaults.grader_model),
+            validate_numbers=_env_bool("RAG_VALIDATE_NUMBERS", defaults.validate_numbers),
         )

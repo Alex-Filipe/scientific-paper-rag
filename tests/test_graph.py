@@ -50,7 +50,7 @@ def test_llm_answer_with_valid_citation(service: RagService, with_fake_llm: Inst
     assert answer.status is AnswerStatus.ANSWERED
     assert answer.text == "RAG combina recuperação e geração [1]."
     assert answer.citations[0].cited is True
-    assert nodes(answer.steps) == ["retrieve", "grade", "validate"]
+    assert nodes(answer.steps) == ["retrieve", "grade", "generate", "validate"]
 
 
 @pytest.mark.parametrize("reply", ["Resposta sem referência.", "Resposta [9]."])
@@ -90,6 +90,7 @@ def test_weak_evidence_triggers_query_rewrite(
         "rewrite",
         "retrieve",
         "grade",
+        "generate",
         "validate",
     ]
 
@@ -182,4 +183,39 @@ def test_separate_grader_handles_grade_and_rewrite(service: RagService) -> None:
 
     assert answer.status is AnswerStatus.ANSWERED
     assert answer.search_query == "retrieval augmented generation"
-    assert nodes(answer.steps) == ["retrieve", "grade", "rewrite", "retrieve", "grade", "validate"]
+    assert nodes(answer.steps)[-2:] == ["generate", "validate"]
+    assert nodes(answer.steps)[:5] == ["retrieve", "grade", "rewrite", "retrieve", "grade"]
+
+
+def test_numbers_missing_from_cited_chunk_fall_back(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    with_fake_llm(service, ["sim", "RAG recupera 42 documentos [1]."])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.FALLBACK
+    assert answer.steps[-1].node == "validate"
+    assert "Números sem suporte nos trechos citados (42)" in answer.steps[-1].detail
+
+
+def test_numeric_validation_can_be_disabled(service: RagService) -> None:
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from paper_rag.generation import GenerationBackend
+    from paper_rag.graph import RagNodes, build_graph
+
+    service.graph = build_graph(
+        RagNodes(
+            search=service.search,
+            llm=FakeListChatModel(responses=["RAG recupera 42 documentos [1]."]),
+            backend=GenerationBackend.OLLAMA,
+            grade_documents=False,
+            validate_numbers=False,
+        )
+    )
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert nodes(answer.steps) == ["retrieve", "grade", "generate", "validate"]

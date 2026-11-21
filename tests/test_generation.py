@@ -14,7 +14,9 @@ from paper_rag.generation import (
     format_evidence,
     is_abstention,
     is_usable_query,
+    number_readings,
     parse_grade,
+    unsupported_numbers,
 )
 from paper_rag.settings import Settings
 
@@ -133,6 +135,7 @@ def test_linear_flow_is_the_default() -> None:
 
     assert settings.grade_documents is False
     assert settings.max_rewrites == 0
+    assert settings.validate_numbers is True
     assert create_grader_model(Settings(generation_backend="ollama")) is None
 
 
@@ -148,3 +151,28 @@ def test_grader_model_uses_the_same_backend(monkeypatch: pytest.MonkeyPatch) -> 
     assert grader.model == "qwen2.5:7b-instruct"
     assert isinstance(generator, ChatOllama)
     assert generator.model == "qwen2.5:1.5b-instruct"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("4,49%", {4.49}),
+        ("50.000 imagens", {50.0, 50000.0}),
+        ("50k images", {50.0, 50000.0}),
+        ("1,7 milhão", {1.7, 1700000.0}),
+        ("11.3 billion FLOPs", {11.3, 11300000000.0}),
+        ("ResNet-152", {152.0}),
+        ("mAP@[.5, .95] with 6n layers", set()),
+    ],
+)
+def test_number_readings(text: str, expected: set[float]) -> None:
+    assert number_readings(text) == expected
+
+
+def test_unsupported_numbers_checks_cited_chunks_and_question() -> None:
+    chunk = "ResNet-152 19.38 4.49. CIFAR-10 has 50k training images and 1.7M parameters [41]."
+    question = "Qual o erro top-5 do ResNet-152?"
+
+    assert unsupported_numbers("Erro de 4,49% [1].", question, [chunk]) == []
+    assert unsupported_numbers("50.000 imagens e 1,7 milhão [1] [10, 41].", question, [chunk]) == []
+    assert unsupported_numbers("O erro é 5.71% e 3.57% [1].", question, [chunk]) == ["5.71", "3.57"]

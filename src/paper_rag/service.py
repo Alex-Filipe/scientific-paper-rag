@@ -179,6 +179,7 @@ def build_service(settings: Settings | None = None) -> RagService:
         grade_documents=resolved.grade_documents,
         max_rewrites=resolved.max_rewrites,
         grader=create_grader_model(resolved),
+        validate_numbers=resolved.validate_numbers,
     )
     return RagService(
         search=search,

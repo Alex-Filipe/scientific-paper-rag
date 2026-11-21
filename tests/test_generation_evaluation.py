@@ -290,7 +290,7 @@ def test_trace_keeps_node_updates(make_service: ServiceFactory) -> None:
 
     trace = traced.trace("What is RAG?")
 
-    assert [node for node, _ in trace.updates] == ["retrieve", "grade", "generate"]
+    assert [node for node, _ in trace.updates] == ["retrieve", "grade", "generate", "validate"]
     assert trace.answer.status is AnswerStatus.ANSWERED
     assert len(trace.contexts) == 1
 

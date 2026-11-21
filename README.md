@@ -85,8 +85,10 @@ RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
   paper-rag ask "Qual é a principal contribuição do artigo?"
 ```
 
-As respostas devem citar os trechos como `[1]`, `[2]` etc.; se o modelo não fornecer citações
-válidas, o sistema mostra as evidências em vez de uma síntese sem referências.
+As respostas devem citar os trechos como `[1]`, `[2]` etc. O nó `validate` confere as citações e
+os números: se uma citação não existir ou se um número da resposta não estiver na pergunta nem nos
+trechos citados, o sistema mostra as evidências em vez da síntese (`RAG_VALIDATE_NUMBERS=false`
+desliga a checagem de números).
 
 Por padrão o fluxo é linear (busca → geração, uma chamada ao LLM). Os nós corretivos são
 opcionais: `RAG_GRADE_DOCUMENTS=true` avalia cada trecho recuperado e `RAG_MAX_REWRITES=1`

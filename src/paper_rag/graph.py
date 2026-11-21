@@ -1,11 +1,12 @@
 """Corrective RAG flow as a LangGraph state machine.
 
-    retrieve -> grade -> generate -> END
+    retrieve -> grade -> generate -> validate -> END
+                  |         \\-> END (extractive answer or model abstention)
                   |  \\-> abstain -> END
                   \\-> rewrite -> retrieve   (at most `max_rewrites` times)
 
 Without an LLM (extractive backend) grading and rewriting are skipped, so the flow is
-retrieve -> generate (extractive) or retrieve -> abstain.
+retrieve -> generate (extractive) or retrieve -> abstain. Grade and rewrite are off by default.
 """
 
 import operator
@@ -29,6 +30,7 @@ from paper_rag.generation import (
     is_abstention,
     is_usable_query,
     parse_grade,
+    unsupported_numbers,
 )
 from paper_rag.models import AnswerStatus, Step
 from paper_rag.retrieval import HybridSearch
@@ -40,6 +42,8 @@ class RagState(TypedDict, total=False):
     search_query: str
     rewrites: int
     contexts: list[Document]
+    draft: str
+    """The model's answer before validation."""
     answer: str
     status: AnswerStatus
     cited: list[int]
@@ -55,6 +59,8 @@ class RagNodes:
     max_rewrites: int = 1
     grader: BaseChatModel | None = None
     """Model for grade and rewrite; None uses `llm`."""
+    validate_numbers: bool = True
+    """Reject answers whose numbers are not in the question or the cited chunks."""
 
     @property
     def judge(self) -> BaseChatModel:
@@ -137,18 +143,28 @@ class RagNodes:
                 "cited": [],
                 "steps": [Step("generate", "O modelo se absteve por falta de evidência.")],
             }
-        cited = cited_indexes(text, len(contexts))
+        return {"draft": text, "steps": [Step("generate", "Resposta gerada pelo modelo.")]}
+
+    def route_after_generate(self, state: RagState) -> Literal["validate", "end"]:
+        return "validate" if "status" not in state else "end"
+
+    def validate(self, state: RagState) -> dict[str, Any]:
+        """Keep the draft only if its citations exist and its numbers come from what it cites."""
+        draft, contexts = state["draft"], state["contexts"]
+        cited = cited_indexes(draft, len(contexts))
         if cited is None:
-            return {
-                "answer": extractive_answer(contexts),
-                "status": AnswerStatus.FALLBACK,
-                "cited": [],
-                "steps": [
-                    Step("validate", "Citações ausentes ou inválidas; mostrando evidências.")
-                ],
-            }
+            return _fallback(contexts, "Citações ausentes ou inválidas; mostrando evidências.")
+        if self.validate_numbers:
+            sources = [contexts[index - 1].page_content for index in cited]
+            missing = unsupported_numbers(draft, state["question"], sources)
+            if missing:
+                return _fallback(
+                    contexts,
+                    f"Números sem suporte nos trechos citados ({', '.join(missing)}); "
+                    "mostrando evidências.",
+                )
         return {
-            "answer": text,
+            "answer": draft,
             "status": AnswerStatus.ANSWERED,
             "cited": cited,
             "steps": [Step("validate", f"Resposta com citações válidas: {cited}.")],
@@ -164,18 +180,31 @@ class RagNodes:
         }
 
 
+def _fallback(contexts: list[Document], detail: str) -> dict[str, Any]:
+    return {
+        "answer": extractive_answer(contexts),
+        "status": AnswerStatus.FALLBACK,
+        "cited": [],
+        "steps": [Step("validate", detail)],
+    }
+
+
 def build_graph(nodes: RagNodes) -> CompiledStateGraph[RagState, None, RagState, RagState]:
     graph = StateGraph(RagState)
     graph.add_node("retrieve", nodes.retrieve)
     graph.add_node("grade", nodes.grade)
     graph.add_node("rewrite", nodes.rewrite)
     graph.add_node("generate", nodes.generate)
+    graph.add_node("validate", nodes.validate)
     graph.add_node("abstain", nodes.abstain)
 
     graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "grade")
     graph.add_conditional_edges("grade", nodes.route_after_grade)
     graph.add_edge("rewrite", "retrieve")
-    graph.add_edge("generate", END)
+    graph.add_conditional_edges(
+        "generate", nodes.route_after_generate, {"validate": "validate", "end": END}
+    )
+    graph.add_edge("validate", END)
     graph.add_edge("abstain", END)
     return graph.compile()
