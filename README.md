@@ -85,12 +85,23 @@ RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
   paper-rag ask "Qual é a principal contribuição do artigo?"
 ```
 
-Com LLM, o grafo avalia cada trecho recuperado (`RAG_GRADE_DOCUMENTS`) e, se nenhum ajudar,
-reescreve a pergunta até `RAG_MAX_REWRITES` vezes. Com o `qwen2.5:1.5b-instruct` o fluxo roda em
-cerca de 4 s por pergunta, mas o modelo é fraco como avaliador e como gerador; veja o teste com
-artigo real em [`docs/architecture.md`](docs/architecture.md#teste-com-artigo-real). As respostas devem citar os trechos como `[1]`,
-`[2]` etc.; se o modelo não fornecer citações válidas, o sistema mostra as evidências em vez de uma
-síntese sem referências.
+As respostas devem citar os trechos como `[1]`, `[2]` etc.; se o modelo não fornecer citações
+válidas, o sistema mostra as evidências em vez de uma síntese sem referências.
+
+Por padrão o fluxo é linear (busca → geração, uma chamada ao LLM). Os nós corretivos são
+opcionais: `RAG_GRADE_DOCUMENTS=true` avalia cada trecho recuperado e `RAG_MAX_REWRITES=1`
+reescreve a pergunta quando nenhum trecho ajuda. `RAG_GRADER_MODEL` permite usar nesses nós um
+modelo maior que o gerador. Com o `qwen2.5:1.5b-instruct`, a avaliação mostrou que o avaliador não
+distingue o trecho certo dos demais e troca respostas certas por abstenções. Com o
+`qwen2.5:7b-instruct` só no `grade`, as respostas erradas ou inventadas caíram de 10 para 2 em 26
+perguntas, ao custo de ~15 s por pergunta; veja a
+[avaliação da geração](docs/architecture.md#avaliação-da-geração).
+
+```bash
+ollama pull qwen2.5:7b-instruct
+RAG_GENERATION_BACKEND=ollama RAG_GRADE_DOCUMENTS=true RAG_GRADER_MODEL=qwen2.5:7b-instruct \
+  paper-rag ask "Qual é o erro top-5 do ResNet-152?" --show-steps
+```
 
 ## Qualidade
 
@@ -102,3 +113,20 @@ pytest
 
 O CI bloqueia regressões tanto na busca vetorial quanto na híbrida, usando perguntas diretas e
 parafraseadas. A versão anterior, implementada sem frameworks, está na tag `v0.1.0-manual`.
+
+A avaliação da **geração** chama o LLM, por isso fica fora do CI. Ela compara o fluxo linear com
+o grafo corretivo em 26 perguntas sobre o artigo do ResNet (diretas, vagas, de tabela, em
+português e sem resposta). O PDF não é versionado: baixe
+[o artigo](https://openaccess.thecvf.com/content_cvpr_2016/papers/He_Deep_Residual_Learning_CVPR_2016_paper.pdf)
+e informe a pasta:
+
+```bash
+RAG_GENERATION_BACKEND=ollama paper-rag evaluate-generation \
+  --papers-dir ~/Downloads --embedding both --runs 3
+paper-rag evaluate-generation --report .data/evaluation/generation-resnet-<data>.jsonl
+```
+
+O relatório traz acertos, parciais, erradas com citação válida, abstenções corretas e falsas,
+`fallback`, falsos negativos do `grade`, chamadas ao LLM, tokens e latência por pergunta, além de
+uma comparação pareada com o fluxo linear. Os vereditos são lexicais (fatos esperados na
+resposta); confira as respostas no JSONL gerado.

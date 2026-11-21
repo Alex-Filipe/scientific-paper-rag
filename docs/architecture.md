@@ -11,6 +11,9 @@ ingestão:  arquivo -> PaperLoader -> RecursiveCharacterTextSplitter -> embeddin
 pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate | abstain)
 ```
 
+Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve -> generate`); a
+[avaliação da geração](#avaliação-da-geração) explica por quê.
+
 ## Módulos
 
 | Módulo | Responsabilidade |
@@ -24,7 +27,7 @@ pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate | a
 | `service.py` | `RagService`: ingestão, busca, `ask` e `stream`, usado por CLI, API e avaliação |
 | `models.py` | Resposta estruturada: texto, status, citações (com página) e passos do grafo |
 | `api.py` / `cli.py` | Portas de entrada; a API expõe streaming por Server-Sent Events |
-| `evaluation/` | Dataset versionado, Recall@K, MRR e gates do CI |
+| `evaluation/` | Busca: datasets, Recall@K, MRR e gates do CI. Geração: dataset com artigo real, vereditos, auditoria do `grade` e relatório (só CLI) |
 
 ## Grafo LangGraph
 
@@ -36,8 +39,10 @@ START -> retrieve -> grade --(há trechos úteis)--> generate -> END
 
 - **retrieve:** busca híbrida com `RAG_CANDIDATE_K` candidatos por ranker e corte final em `top_k`.
 - **grade:** o LLM julga cada trecho separadamente (`sim`/`não`, uma chamada por trecho). Resposta
-  ilegível mantém o trecho. Desligado sem LLM ou com `RAG_GRADE_DOCUMENTS=false`.
-- **rewrite:** o LLM reescreve a pergunta como consulta técnica. Limitado por `RAG_MAX_REWRITES`.
+  ilegível mantém o trecho. Opcional: `RAG_GRADE_DOCUMENTS=true` (padrão `false`; sem LLM é sempre
+  pulado).
+- **rewrite:** o LLM reescreve a pergunta como consulta técnica. Limitado por `RAG_MAX_REWRITES`
+  (padrão `0`). `grade` e `rewrite` podem usar outro modelo com `RAG_GRADER_MODEL`.
   Se a consulta reescrita não tiver palavras (por exemplo, só um número), a pergunta original é
   mantida.
 - **generate:** sem LLM, lista as evidências (`extractive`). Com LLM, exige citações `[n]`
@@ -73,6 +78,13 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
 8. **Avaliação trecho a trecho:** com o `qwen2.5:1.5b`, pedir a lista dos trechos úteis gerava
    números inexistentes (`3, 5, 6, 7, 8` para 4 trechos), e artigos têm suas próprias referências
    entre colchetes (`[40]`). Um `sim`/`não` por trecho é o formato que o modelo pequeno segue.
+9. **Fluxo linear por padrão:** com o `qwen2.5:1.5b-instruct`, o `grade` manteve 27% dos
+   trechos-gabarito e 27% dos demais, ou seja, não filtrou relevância; só se absteve mais. O
+   `rewrite` não trouxe ganho e somou 2,5 a 3,4 chamadas por pergunta. Com o
+   `qwen2.5:7b-instruct` só no `grade` (`RAG_GRADER_MODEL`), os erros caem de 10 para 2 em 26
+   perguntas, mas cada pergunta leva ~15 s; fica como opção, não como padrão.
+10. **Avaliação da geração fora do CI:** depende do Ollama e leva cerca de 4 s por pergunta. Os
+    testes cobrem o avaliador com um LLM falso.
 
 ## Teste com artigo real
 
@@ -89,9 +101,93 @@ ResNet (He et al., CVPR 2016, 9 páginas em duas colunas), `qwen2.5:1.5b-instruc
 - **Grafo:** o avaliador de 1,5B quase não discrimina. Com o prompt "ajuda a responder", descarta
   trechos bons (falsas abstenções, sobretudo com pergunta em português e artigo em inglês). Com
   um prompt tolerante, aprova tudo e o fluxo vira linear. A reescrita costuma produzir uma
-  resposta inventada em vez de uma consulta. Medir isso com dataset é a etapa 2.
+  resposta inventada em vez de uma consulta. A [avaliação da geração](#avaliação-da-geração)
+  mediu isso com dataset.
 - **Geração:** a validação garante citações existentes, não respostas fiéis. O modelo errou
   perguntas diretas ("vanishing gradients" em vez de degradação) citando trechos válidos.
+
+## Avaliação da geração
+
+Pergunta: o grafo corretivo dá respostas melhores que o fluxo linear com o mesmo modelo?
+
+**Método.** `paper-rag evaluate-generation` com `evaluation/generation_resnet.json`: 26 perguntas
+sobre o ResNet (6 diretas, 4 vagas, 5 de tabela, 6 em português, 5 sem resposta no artigo). Cada
+pergunta traz a resposta de referência, os fatos esperados (com variantes como `4,49`/`4.49`) e
+citações literais com página. Um trecho é **gabarito** quando contém uma dessas citações. O
+avaliador registra, por pergunta, o veredito (correta, parcial, errada, abstenção, `fallback`),
+se a resposta citou um trecho-gabarito, o que o `grade` manteve ou descartou, as chamadas ao LLM
+por nó, os tokens e a latência. Configurações: linear (`RAG_GRADE_DOCUMENTS=false`,
+`RAG_MAX_REWRITES=0`), só grade e grade + rewrite; `top_k=4`; `qwen2.5:1.5b-instruct`; MacBook M4.
+
+**Cache do Ollama.** O Ollama 0.34 guarda em cache vários prompts: um prompt de 1.600 tokens
+repetido cai de 2 s para 0,05 s. Como as configurações compartilham prompts, a latência dependia
+da ordem das rodadas. O avaliador descarrega e recarrega o modelo antes de cada pergunta (cerca de
+0,7 s, fora do tempo medido). Com o cache limpo, 3 rodadas deram respostas idênticas; com o cache
+ativo, 2 de 156 respostas mudaram. A variação entre rodadas vista no teste anterior vinha do cache,
+não da amostragem.
+
+**Resultados** (vereditos revisados à mão; o juiz lexical concordou em 48 de 64 respostas
+distintas, sendo generoso nas vagas e rígido em traduções):
+
+| | linear | grade | grade + rewrite |
+|---|---|---|---|
+| **hashing** | | | |
+| Corretas / parciais (de 21) | 8 / 6 | 6 / 2 | 6 / 2 |
+| Erradas com citação válida | 6 | 4 | 5 |
+| Abstenções falsas | 0 | 9 | 8 |
+| `fallback` | 1 | 0 | 0 |
+| Sem resposta: abstém / inventa (de 5) | 1 / 4 | 4 / 1 | 4 / 1 |
+| Chamadas ao LLM por pergunta | 1,0 | 4,5 | 7,0 |
+| Latência média | 3,3 s | 4,1 s | 5,2 s |
+| **semantic** | | | |
+| Corretas / parciais (de 21) | 9 / 4 | 4 / 2 | 5 / 2 |
+| Erradas com citação válida | 7 | 2 | 3 |
+| Abstenções falsas | 0 | 13 | 11 |
+| `fallback` | 1 | 0 | 0 |
+| Sem resposta: abstém / inventa (de 5) | 1 / 4 | 4 / 1 | 4 / 1 |
+| Chamadas ao LLM por pergunta | 1,0 | 4,3 | 7,7 |
+| Latência média | 4,1 s | 4,4 s | 5,8 s |
+
+- **O `grade` não filtra relevância com o 1,5B:** manteve 27% dos trechos-gabarito e 27% dos
+  demais trechos das perguntas respondíveis (26% e 26% com semantic). Nas perguntas sem resposta
+  manteve 5 a 10%, por isso se abstém mais. O efeito é trocar respostas erradas por abstenções
+  falsas, e zerou as perguntas de tabela.
+- **O `rewrite` não trouxe ganho:** os mesmos acertos do grade (um a mais com semantic, um erro a
+  mais com hashing) por 2,5 a 3,4 chamadas a mais por pergunta.
+- **O gargalo é o gerador:** o trecho-gabarito está no top-4 em 17 de 21 perguntas nos dois
+  backends, mas o modelo acerta 8 ou 9. Ele pega a linha errada da tabela, cita referências do
+  artigo como se fossem fatos e responde mal em português (1 de 6).
+- **Respostas longas:** o pico de 13,5 s não veio do `grade`. O gerador divagou até o limite de
+  512 tokens numa pergunta vaga.
+
+**Avaliador maior.** Num teste só do avaliador (os 4 trechos da primeira busca de cada pergunta,
+hashing), o prompt não salvou o 1,5B: com o prompt atual ele mantém 27% dos trechos-gabarito e
+27% dos demais; com um prompt tolerante ("palavras-chave ou significado relacionado"), 95% e 85%,
+o que equivale ao fluxo linear. O `qwen2.5:7b-instruct` separa de fato: mantém 64% dos
+trechos-gabarito, 16% dos demais e nenhum trecho das perguntas sem resposta, a 2,7 s por trecho.
+O prompt tolerante não melhorou o 7B. A rodada completa com o 7B só no `grade`
+(`RAG_GRADER_MODEL`, gerador 1,5B, hashing, uma rodada):
+
+| | linear | grade (1,5B) | grade (7B) |
+|---|---|---|---|
+| Corretas / parciais (de 21) | 8 / 6 | 6 / 2 | 9 / 3 |
+| Erradas com citação válida | 6 | 4 | 2 |
+| Abstenções falsas | 0 | 9 | 6 |
+| `fallback` | 1 | 0 | 1 |
+| Sem resposta: abstém / inventa (de 5) | 1 / 4 | 4 / 1 | 5 / 0 |
+| Corretas + abstenções corretas (de 26) | 9 | 10 | 14 |
+| Latência média | 3,3 s | 4,1 s | 14,7 s |
+
+Com o 7B como avaliador, as respostas erradas ou inventadas caem de 10 para 2 e todas as perguntas
+sem resposta viram abstenção. Em troca, ele ainda descarta 36% dos trechos-gabarito, sobretudo de
+tabela e das perguntas em português (6 abstenções falsas), e a latência fica 4,5 vezes maior.
+Um acerto a mais ou a menos não é significativo com 21 perguntas; a queda dos erros é.
+
+Decisão: fluxo linear por padrão, porque roda com o modelo pequeno e responde em ~3 s. Quem
+prefere não receber respostas inventadas pode usar `RAG_GRADE_DOCUMENTS=true` com
+`RAG_GRADER_MODEL=qwen2.5:7b-instruct` (~15 s por pergunta e um modelo de 4,7 GB). O `rewrite`
+fica desligado nos dois casos. O prompt do avaliador foi escolhido com as mesmas perguntas do
+teste, então os números do 7B são um pouco otimistas.
 
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
@@ -110,8 +206,8 @@ medir qualidade em artigos reais.
 
 ## Próximas melhorias planejadas
 
-1. Dataset de avaliação com artigos reais e avaliação da geração (fidelidade, suporte das
-   citações, abstenção).
+1. Validação de suporte: conferir se os números da resposta aparecem no trecho citado, para
+   reduzir as respostas erradas com citação válida.
 2. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
 3. Reranker entre a busca e o grafo.
 4. Tela consumindo a API (resposta estruturada e SSE já disponíveis).
