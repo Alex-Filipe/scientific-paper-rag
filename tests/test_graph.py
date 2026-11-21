@@ -219,3 +219,20 @@ def test_numeric_validation_can_be_disabled(service: RagService) -> None:
 
     assert answer.status is AnswerStatus.ANSWERED
     assert nodes(answer.steps) == ["retrieve", "grade", "generate", "validate"]
+
+
+def test_miscited_number_is_recited_to_the_matching_chunk(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    service.ingest_text("Results", "Error rates\nplain network 28.54 top-1 error", "results.md")
+    retrieved = service.retrieve("plain network error", 4)
+    results = next(i for i, c in enumerate(retrieved, 1) if c.metadata["source"] == "results.md")
+    wrong = 1 if results != 1 else 2
+    with_fake_llm(service, ["sim", "sim", f"O erro da plain network é 28.54% [{wrong}]."])
+
+    answer = service.ask("plain network error")
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.text == f"O erro da plain network é 28.54% [{results}]."
+    assert [citation.index for citation in answer.citations if citation.cited] == [results]
+    assert answer.steps[-1].detail.startswith(f"Citação corrigida de [{wrong}] para [{results}]")

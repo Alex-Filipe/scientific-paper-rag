@@ -20,6 +20,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from paper_rag.generation import (
     ABSTENTION_ANSWER,
+    CITATION_PATTERN,
     GRADE_PROMPT,
     REWRITE_PROMPT,
     GenerationBackend,
@@ -30,6 +31,7 @@ from paper_rag.generation import (
     is_abstention,
     is_usable_query,
     parse_grade,
+    recitation_target,
     unsupported_numbers,
 )
 from paper_rag.models import AnswerStatus, Step
@@ -149,7 +151,11 @@ class RagNodes:
         return "validate" if "status" not in state else "end"
 
     def validate(self, state: RagState) -> dict[str, Any]:
-        """Keep the draft only if its citations exist and its numbers come from what it cites."""
+        """Keep the draft only if its citations exist and its numbers come from what it cites.
+
+        A draft citing one chunk whose numbers sit in another retrieved chunk's matching line is
+        re-cited to that chunk instead of falling back.
+        """
         draft, contexts = state["draft"], state["contexts"]
         cited = cited_indexes(draft, len(contexts))
         if cited is None:
@@ -158,11 +164,28 @@ class RagNodes:
             sources = [contexts[index - 1].page_content for index in cited]
             missing = unsupported_numbers(draft, state["question"], sources)
             if missing:
-                return _fallback(
-                    contexts,
-                    f"Números sem suporte nos trechos citados ({', '.join(missing)}); "
-                    "mostrando evidências.",
+                texts = [context.page_content for context in contexts]
+                target = (
+                    recitation_target(draft, state["question"], texts) if len(cited) == 1 else None
                 )
+                if target is None:
+                    return _fallback(
+                        contexts,
+                        f"Números sem suporte nos trechos citados ({', '.join(missing)}); "
+                        "mostrando evidências.",
+                    )
+                return {
+                    "answer": CITATION_PATTERN.sub(f"[{target}]", draft),
+                    "status": AnswerStatus.ANSWERED,
+                    "cited": [target],
+                    "steps": [
+                        Step(
+                            "validate",
+                            f"Citação corrigida de {cited} para [{target}], o trecho que "
+                            f"contém {', '.join(missing)}.",
+                        )
+                    ],
+                }
         return {
             "answer": draft,
             "status": AnswerStatus.ANSWERED,

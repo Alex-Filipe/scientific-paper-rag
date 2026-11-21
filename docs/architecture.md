@@ -51,7 +51,10 @@ START -> retrieve -> grade --(há trechos úteis)--> generate --(resposta do LLM
 - **validate:** aceita o rascunho só se as citações `[n]` existirem e se todo número da resposta
   aparecer na pergunta ou nos trechos citados (`RAG_VALIDATE_NUMBERS`, padrão `true`). A
   comparação aceita formatos diferentes (`4,49`/`4.49`, `50.000`/`50k`, `1,7 milhão`/`1.7M`) e
-  ignora as referências do artigo (`[10, 41]`). Se falhar, mostra as evidências (`fallback`).
+  ignora as referências do artigo (`[10, 41]`). Se a resposta cita um único trecho e os números
+  estão em outro trecho recuperado, numa linha que também tem uma palavra da pergunta (como em
+  `34 layers 28.54 25.03`), a citação é corrigida para esse trecho. Nos demais casos, mostra as
+  evidências (`fallback`).
 - **abstain:** responde que não há evidência suficiente.
 
 Cada nó registra um `Step`. Em `POST /questions/stream` os passos chegam como eventos `step`, os
@@ -91,8 +94,8 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
 10. **Avaliação da geração fora do CI:** depende do Ollama e leva cerca de 4 s por pergunta. Os
     testes cobrem o avaliador com um LLM falso.
 11. **Validação como nó próprio:** a validação saiu de dentro do `generate` e virou o nó
-    `validate`, com uma checagem a mais: números sem suporte nos trechos citados. É uma regra
-    lexical, sem LLM, que custa microssegundos.
+    `validate`, com uma checagem a mais: números sem suporte nos trechos citados, e a correção da
+    citação quando o número está na linha certa de outro trecho. São regras lexicais, sem LLM.
 
 ## Teste com artigo real
 
@@ -199,20 +202,24 @@ fica desligado nos dois casos. O prompt do avaliador foi escolhido com as mesmas
 teste, então os números do 7B são um pouco otimistas.
 
 **Validação de números.** Com o fluxo linear (cache limpo, uma rodada, mesmos rascunhos do
-gerador), o nó `validate` trocou 11 de 52 respostas por evidências:
+gerador), corretas / erradas + inventadas, em 21 respondíveis e 5 sem resposta:
 
-| | hashing | semantic |
-|---|---|---|
-| Erradas ou inventadas → evidências | 2 | 4 |
-| Corretas → evidências | 2 | 3 |
-| Corretas / erradas + inventadas, antes → depois | 8 / 10 → 6 / 8 | 9 / 11 → 6 / 7 |
+| | sem validação | só checagem | checagem + correção da citação |
+|---|---|---|---|
+| hashing | 8 / 10 | 6 / 8 | 8 / 9 |
+| semantic | 9 / 11 | 6 / 7 | 8 / 9 |
 
-As 5 corretas perdidas tinham o número certo com a citação errada (4 casos, por exemplo o 28,54%
-citado como [1] quando estava em [2]) ou um detalhe inventado ("ResNet-101 venceu a
-classificação"). O validador fez o que promete, pois a citação não sustentava o número, e o
-`fallback` mostra os trechos, inclusive o certo. Fica ligado por padrão porque o projeto promete
-citações rastreáveis. Ele não pega números copiados da linha errada do trecho citado (o 5,71% da
-Tabela 3 no lugar do 4,49%), nem respostas sem números.
+Só a checagem trocou 11 de 52 respostas por evidências: 6 erradas ou inventadas e 5 corretas. Em
+4 dessas corretas o número estava certo, mas citado no trecho errado (o 28,54% citado como [1]
+quando estava em [2]); a quinta tinha um detalhe inventado. A correção da citação recupera essas
+4, agora citando o trecho certo, e readmite 3 erradas cujo número aparece numa linha com uma
+palavra da pergunta (o 73,8% da tabela do VOC, o 3,57% e um "Fig. 7"). Uma regra mais simples,
+que corrige a citação para qualquer trecho com o número, recuperou 5 e readmitiu 4, e no hashing
+voltou exatamente ao resultado sem validação. Somando os dois backends, o padrão (checagem +
+correção) fica com 1 correta a menos e 3 erradas a menos que sem validação, e as respostas
+corretas passam a citar o trecho certo. A regra foi escolhida olhando estes mesmos 11 casos, então
+o ganho é otimista. A checagem não pega números copiados da linha errada do trecho citado (o
+5,71% da Tabela 3 no lugar do 4,49%), nem respostas sem números.
 
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
@@ -231,9 +238,7 @@ medir qualidade em artigos reais.
 
 ## Próximas melhorias planejadas
 
-1. Corrigir a citação quando o número da resposta está em outro trecho recuperado, em vez de
-   cair no `fallback` (recuperaria 4 das 5 respostas corretas recusadas pelo `validate`).
-2. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
-3. Reranker entre a busca e o grafo.
-4. Tela consumindo a API (resposta estruturada e SSE já disponíveis).
-5. Observabilidade de latência, erros e tokens por consulta.
+1. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
+2. Reranker entre a busca e o grafo.
+3. Tela consumindo a API (resposta estruturada e SSE já disponíveis).
+4. Observabilidade de latência, erros e tokens por consulta.

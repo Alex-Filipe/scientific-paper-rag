@@ -16,6 +16,7 @@ from paper_rag.generation import (
     is_usable_query,
     number_readings,
     parse_grade,
+    recitation_target,
     unsupported_numbers,
 )
 from paper_rag.settings import Settings
@@ -176,3 +177,16 @@ def test_unsupported_numbers_checks_cited_chunks_and_question() -> None:
     assert unsupported_numbers("Erro de 4,49% [1].", question, [chunk]) == []
     assert unsupported_numbers("50.000 imagens e 1,7 milhão [1] [10, 41].", question, [chunk]) == []
     assert unsupported_numbers("O erro é 5.71% e 3.57% [1].", question, [chunk]) == ["5.71", "3.57"]
+
+
+def test_recitation_needs_the_number_on_a_line_matching_the_question() -> None:
+    question = "According to Table 2, what is the top-1 error of the 34-layer plain network?"
+    answer = "The top-1 error of the 34-layer plain network is 28.54% [1]."
+    other = "ResNet-34 B 21.84 5.71"
+    table = "plain ResNet\n18 layers 27.94 27.88\n34 layers 28.54 25.03"
+
+    assert recitation_target(answer, question, [other, table]) == 2
+    # The number alone is not enough: no word of the question on its line.
+    coco = "COCO mAP of ResNet-101?"
+    assert recitation_target("It is 73.8% [1].", coco, [other, "x 73.8"]) is None
+    assert recitation_target("No numbers here [1].", question, [other, table]) is None

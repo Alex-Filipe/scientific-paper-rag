@@ -86,9 +86,10 @@ RAG_GENERATION_BACKEND=openai RAG_OPENAI_MODEL=gpt-6-astra \
 ```
 
 As respostas devem citar os trechos como `[1]`, `[2]` etc. O nó `validate` confere as citações e
-os números: se uma citação não existir ou se um número da resposta não estiver na pergunta nem nos
-trechos citados, o sistema mostra as evidências em vez da síntese (`RAG_VALIDATE_NUMBERS=false`
-desliga a checagem de números).
+os números. Se uma citação não existir, ou se um número da resposta não estiver na pergunta nem
+nos trechos citados, o sistema mostra as evidências em vez da síntese. A exceção é quando o
+número está na linha certa de outro trecho recuperado: aí a citação é corrigida para esse trecho
+(`RAG_VALIDATE_NUMBERS=false` desliga a checagem de números).
 
 Por padrão o fluxo é linear (busca → geração, uma chamada ao LLM). Os nós corretivos são
 opcionais: `RAG_GRADE_DOCUMENTS=true` avalia cada trecho recuperado e `RAG_MAX_REWRITES=1`

@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
+from paper_rag.retrieval import lexical_tokens
 from paper_rag.settings import Settings
 
 ABSTENTION_ANSWER = "Não encontrei evidências suficientes no corpus para responder à pergunta."
@@ -147,6 +148,11 @@ def number_readings(text: str) -> set[float]:
     return readings
 
 
+def _answer_numbers(answer: str) -> list[str]:
+    tokens = [match.group(0).strip() for match in NUMBER.finditer(CITATION_BLOCK.sub(" ", answer))]
+    return list(dict.fromkeys(tokens))
+
+
 def unsupported_numbers(answer: str, question: str, sources: Sequence[str]) -> list[str]:
     """Numbers in the answer that are neither in the question nor in the cited chunks.
 
@@ -156,12 +162,37 @@ def unsupported_numbers(answer: str, question: str, sources: Sequence[str]) -> l
     known = number_readings(question)
     for source in sources:
         known |= number_readings(source)
-    missing: list[str] = []
-    for match in NUMBER.finditer(CITATION_BLOCK.sub(" ", answer)):
-        token = match.group(0).strip()
-        if not number_readings(token) & known and token not in missing:
-            missing.append(token)
-    return missing
+    return [token for token in _answer_numbers(answer) if not number_readings(token) & known]
+
+
+def recitation_target(answer: str, question: str, sources: Sequence[str]) -> int | None:
+    """The best-ranked chunk (1-based) that backs every number of a mis-cited answer, or None.
+
+    A chunk qualifies only if each number shares a line with a word of the question: tables put
+    the row label and its values on one line (`34 layers 28.54 25.03`), so this separates a wrong
+    citation from a number taken out of context. A plain "the number is somewhere" rule re-admitted
+    as many wrong answers as it rescued.
+    """
+    known = number_readings(question)
+    numbers = [token for token in _answer_numbers(answer) if not number_readings(token) & known]
+    if not numbers:
+        return None
+    question_words = _content_words(question)
+    for index, source in enumerate(sources, start=1):
+        lines = [(number_readings(line), _content_words(line)) for line in source.splitlines()]
+        if all(
+            any(
+                number_readings(token) & values and words & question_words
+                for values, words in lines
+            )
+            for token in numbers
+        ):
+            return index
+    return None
+
+
+def _content_words(text: str) -> set[str]:
+    return {token for token in lexical_tokens(text) if len(token) > 1}
 
 
 def parse_grade(text: str) -> bool | None:
