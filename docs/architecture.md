@@ -239,9 +239,17 @@ chat:          POST /questions/stream -> step (st.status) -> token (st.write_str
   `data:` em várias linhas, comentários, evento incompleto descartado) e entrega eventos tipados
   (`StepEvent`, `TokenEvent`, `AnswerEvent`, `ErrorEvent`).
 - **Tokens antes da validação:** os tokens do `generate` aparecem enquanto chegam, mas o texto
-  final vem do evento `answer`, que pode ter a citação corrigida ou ter virado `fallback`. Quando
-  vira `fallback`, o rascunho descartado fica num expander com o motivo dado pelo `validate`, e a
-  correção de citação aparece em destaque.
+  final vem do evento `answer`, que pode ter a citação corrigida ou ter virado `fallback`. A
+  correção de citação aparece em destaque. No `fallback`, a tela separa os dois motivos do
+  `validate`:
+  - **Sem citação válida:** o rascunho ocupa o lugar da resposta, com o selo `não verificada` e um
+    aviso de que nem as fontes nem os números foram conferidos. A lista de evidências que a API
+    manda nesse caso repete as fontes. No teste real, o rascunho era uma tradução fiel do trecho
+    [3] que só esqueceu o `[3]`, enquanto 3 das 4 evidências eram referências bibliográficas.
+  - **Número sem suporte:** a tela mostra as evidências e guarda o rascunho, que tem um número
+    inventado, num expander fechado com o motivo.
+
+  A regra do `validate` não mudou; a resposta continua com status `fallback`.
 - **Chaves por pergunta:** "avaliar trechos" e "validar números" vão no corpo da pergunta
   (`grade_documents`, `validate_numbers`) e entram no estado do grafo; o modelo e o avaliador
   (`RAG_GRADER_MODEL`) continuam fixos ao subir a API, e a tela só os mostra. Com o grade ligado e
@@ -257,8 +265,9 @@ chat:          POST /questions/stream -> step (st.status) -> token (st.write_str
   tela (`paper_rag.ui.*`), mas não os outros módulos do pacote. Um `ApiClient` guardado na sessão
   passaria a emitir eventos das classes antigas, e os `isinstance` das novas descartariam tudo (a
   resposta sumia em silêncio). Por isso a sessão guarda só o `httpx.Client` e o `ApiClient` é
-  recriado a cada execução; o status é comparado por valor, não por identidade. Mudanças fora de
-  `ui/` (por exemplo, em `models.py`) só valem depois de reiniciar a tela.
+  recriado a cada execução. Os turnos da conversa são recriados com a classe `Turn` atual
+  (`view.revive`), e o status é comparado por valor, não por identidade. Mudanças fora de `ui/`
+  (por exemplo, em `models.py`) só valem depois de reiniciar a tela.
 - **Testes sem rede nem LLM:** o cliente roda contra o `TestClient` da própria API (que é um
   `httpx.Client`) e contra `httpx.MockTransport`; a tela roda pelo `AppTest` do Streamlit, com o
   modelo falso dos testes do grafo. O coverage mede `src/paper_rag` por pasta, porque o Streamlit

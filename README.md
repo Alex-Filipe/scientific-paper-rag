@@ -57,9 +57,11 @@ As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opci
 
 Chat sobre a API: barra lateral com os artigos indexados, upload, modelo (só leitura), top-k e as
 chaves "avaliar trechos" e "validar números"; os passos do grafo aparecem enquanto a resposta é
-gerada, e cada resposta traz o selo do status (`respondida`, `fallback`, `abstenção`, `extrativa`)
-e as fontes com página: o trecho inteiro, com as citadas abertas e os números da resposta grifados.
-A tela só conversa com a API, então suba as duas em terminais separados:
+gerada, e cada resposta traz o selo do status (`respondida`, `fallback`, `não verificada`,
+`abstenção`, `extrativa`) e as fontes com página: o trecho inteiro, com as citadas abertas e os
+números da resposta grifados. Quando o modelo esquece as citações, a resposta aparece marcada como
+não verificada em vez de ser trocada pelas evidências. A tela só conversa com a API, então suba as
+duas em terminais separados:
 
 ```bash
 python -m pip install -e ".[ui]"
