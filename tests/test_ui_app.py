@@ -65,6 +65,7 @@ def test_answer_replaces_tokens_and_lists_sources(
     assert "**Validação:** Resposta com citações válidas: \\[1\\]." in shown
     labels = [expander.label for expander in app.expander]
     assert labels == ["[1] Deep Residual Learning · citada"]
+    assert "ResNet-152 reaches :orange-background[**4.49**]% top-5 error." in shown
     assert app.session_state["turns"][0].answer.status == "answered"
 
     app.chat_input[0].set_value("E o top-1?").run()

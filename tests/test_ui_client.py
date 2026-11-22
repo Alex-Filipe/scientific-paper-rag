@@ -142,3 +142,28 @@ def test_client_yields_error_events_from_the_stream() -> None:
     events = list(client.stream("O que é RAG?"))
 
     assert events == [StepEvent(Step("retrieve", "ok")), ErrorEvent("Ollama is not running")]
+
+
+def test_newer_api_fields_are_ignored_and_bad_payloads_raise() -> None:
+    citation = {
+        "index": 1,
+        "chunk_id": "d:0",
+        "title": "ResNet",
+        "source": "resnet.pdf",
+        "page": 7,
+        "excerpt": "4.49",
+        "rank": 1,
+        "score": 0.03,
+        "cited": True,
+        "highlights": [[0, 4]],
+    }
+    answer = {"answer": "4,49% [1].", "status": "answered", "citations": [citation]}
+
+    typed = to_stream_event(ServerEvent("answer", answer))
+
+    assert isinstance(typed, AnswerEvent)
+    assert typed.answer.citations[0].text == ""
+    with pytest.raises(ApiError, match="Resposta inesperada da API para Citation"):
+        to_stream_event(ServerEvent("answer", answer | {"citations": [{"index": 1}]}))
+    with pytest.raises(ApiError, match="Evento `answer` inesperado"):
+        to_stream_event(ServerEvent("answer", answer | {"status": "talvez"}))

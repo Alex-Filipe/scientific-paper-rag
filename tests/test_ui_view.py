@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
 from paper_rag.ui import view
 from paper_rag.ui.client import AnswerEvent, ErrorEvent, StepEvent, TokenEvent
@@ -140,3 +142,30 @@ def test_markdown_helpers_keep_lines_and_avoid_latex() -> None:
     )
     assert view.answer_markdown("Custa $5 e $6 [1].") == r"Custa \$5 e \$6 [1]."
     assert view.format_seconds(14.66) == "14,7 s"
+
+
+def test_sources_show_the_whole_chunk_with_claimed_numbers_marked() -> None:
+    table = "ResNet-101 21.75 6.05\nResNet-152 21.43 5.71\n1. Introduction"
+    whole = Citation(**(asdict(citation()) | {"text": table}))
+    turn = view.Turn("Erro top-5 do ResNet-152?")
+    turn.apply(AnswerEvent(answer(AnswerStatus.ANSWERED, "O ResNet-152 chega a 5,71% [2].")))
+
+    highlight = view.highlight_readings(turn)
+
+    assert highlight == {5.71}
+    assert view.source_markdown(whole, highlight) == (
+        "ResNet-101 21.75 6.05  \n"
+        "ResNet-152 21.43 :orange-background[**5.71**]  \n"
+        "1\\. Introduction"
+    )
+    assert view.source_markdown(citation()) == "ResNet-152 19.38 4.49"
+
+
+def test_marks_keep_table_spacing_and_skip_unchecked_answers() -> None:
+    fallback = view.Turn("Erro?", answer=answer(AnswerStatus.FALLBACK, "Evidências: 5.71"))
+
+    assert view.excerpt_markdown("plain 28.54 10.02", {28.54}) == (
+        "plain :orange-background[**28.54**] 10.02"
+    )
+    assert view.highlight_readings(fallback) == set()
+    assert view.highlight_readings(view.Turn("Erro?")) == set()

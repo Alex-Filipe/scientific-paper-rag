@@ -134,13 +134,14 @@ def render_result(turn: view.Turn, slot: DeltaGenerator) -> None:
         return
     st.caption(view.sources_heading(answer))
     expand_cited = answer.status == AnswerStatus.ANSWERED
+    highlight = view.highlight_readings(turn)
     for citation in answer.citations:
         with st.expander(
             view.source_label(citation),
             expanded=citation.cited and expand_cited,
             icon=view.source_icon(citation),
         ):
-            st.markdown(view.excerpt_markdown(citation.excerpt))
+            st.markdown(view.source_markdown(citation, highlight))
             st.caption(
                 f"{citation.source} · posição {citation.rank} na busca · "
                 f"RRF {view.format_score(citation.score)}"

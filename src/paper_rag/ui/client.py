@@ -6,14 +6,15 @@ the `text/event-stream` lines from an `httpx` response instead. It has no Stream
 
 import json
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields
+from typing import Any, TypeVar
 
 import httpx
 
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
+T = TypeVar("T")
 # Generation with a local 7B grader takes ~15 s per question; reads wait well beyond that.
 DEFAULT_TIMEOUT = httpx.Timeout(10.0, read=300.0)
 
@@ -79,6 +80,13 @@ def parse_sse(lines: Iterable[str]) -> Iterator[ServerEvent]:
 
 def to_stream_event(event: ServerEvent) -> StreamEvent | None:
     """Type the API events; unknown event names are ignored (None)."""
+    try:
+        return _typed(event)
+    except (TypeError, ValueError) as error:
+        raise ApiError(f"Evento `{event.event}` inesperado da API: {error}") from error
+
+
+def _typed(event: ServerEvent) -> StreamEvent | None:
     data = event.data if isinstance(event.data, dict) else {}
     if event.event == "step":
         return StepEvent(Step(node=str(data.get("node", "")), detail=str(data.get("detail", ""))))
@@ -96,8 +104,8 @@ def answer_from_dict(data: dict[str, Any]) -> Answer:
     return Answer(
         text=str(data.get("answer", "")),
         status=AnswerStatus(data.get("status", AnswerStatus.ABSTAINED)),
-        citations=tuple(Citation(**citation) for citation in data.get("citations", [])),
-        steps=tuple(Step(**step) for step in data.get("steps", [])),
+        citations=tuple(_build(Citation, citation) for citation in data.get("citations", [])),
+        steps=tuple(_build(Step, step) for step in data.get("steps", [])),
         search_query=str(data.get("search_query", "")),
     )
 
@@ -117,10 +125,10 @@ class ApiClient:
         return str(self.http.base_url).rstrip("/")
 
     def config(self) -> ServiceConfig:
-        return ServiceConfig(**self._request("GET", "/config"))
+        return _build(ServiceConfig, self._request("GET", "/config"))
 
     def documents(self) -> list[DocumentInfo]:
-        return [DocumentInfo(**document) for document in self._request("GET", "/documents")]
+        return [_build(DocumentInfo, document) for document in self._request("GET", "/documents")]
 
     def upload(self, filename: str, content: bytes) -> int:
         """Ingest a file; returns the number of chunks created."""
@@ -169,6 +177,18 @@ class ApiClient:
         if isinstance(error, httpx.TimeoutException):
             return f"A API em {self.base_url} demorou demais para responder."
         return f"Não consegui falar com a API em {self.base_url} ({type(error).__name__})."
+
+
+def _build(cls: type[T], data: dict[str, Any]) -> T:
+    """Build a dataclass from JSON, ignoring fields this client does not know.
+
+    A newer API may add fields (as `Citation.text` was added); the screen must keep working.
+    """
+    known = {item.name for item in fields(cls)}  # type: ignore[arg-type]
+    try:
+        return cls(**{key: value for key, value in data.items() if key in known})
+    except TypeError as error:
+        raise ApiError(f"Resposta inesperada da API para {cls.__name__}: {error}") from error
 
 
 def _question(question: str, options: dict[str, Any]) -> dict[str, Any]:

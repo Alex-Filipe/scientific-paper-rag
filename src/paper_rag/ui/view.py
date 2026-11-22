@@ -1,11 +1,12 @@
 """Presentation logic of the chat screen, free of Streamlit so it can be unit tested."""
 
 import re
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Set
 from dataclasses import dataclass, field
 from typing import Literal
 
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
+from paper_rag.numbers import NUMBER, claimed_readings, number_readings
 from paper_rag.ui.client import AnswerEvent, ErrorEvent, StepEvent, StreamEvent, TokenEvent
 
 MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>#|~$])")
@@ -208,16 +209,42 @@ def answer_markdown(text: str) -> str:
     return text.replace("$", r"\$")
 
 
-def excerpt_markdown(text: str) -> str:
+def highlight_readings(turn: Turn) -> set[float]:
+    """Numbers to mark in the sources: the ones an accepted answer adds to the question.
+
+    These are the numbers the `validate` node looked for in the cited chunks, so marking them
+    lets the reader check the support without hunting through a table.
+    """
+    if turn.answer is None or turn.answer.status != AnswerStatus.ANSWERED:
+        return set()
+    return claimed_readings(turn.answer.text, turn.question)
+
+
+def source_markdown(citation: Citation, highlight: Set[float] = frozenset()) -> str:
+    """The whole chunk (older APIs only send the excerpt), with the given numbers marked."""
+    return excerpt_markdown(citation.text or citation.excerpt, highlight)
+
+
+def excerpt_markdown(text: str, highlight: Set[float] = frozenset()) -> str:
     """Chunk text as Markdown with its line breaks (table rows) kept and no accidental lists."""
-    return "  \n".join(_escape_line(line) for line in text.strip().splitlines())
+    return "  \n".join(_escape_line(line, highlight) for line in text.strip().splitlines())
 
 
-def _escape_line(line: str) -> str:
-    escaped = escape_markdown(line)
-    return LIST_MARKER.sub(
+def _escape_line(line: str, highlight: Set[float]) -> str:
+    escaped = LIST_MARKER.sub(
         lambda match: (
             f"{match[1]}{match[2]}\\{match[3]}" if match[2] else f"{match[4]}\\{match[5]}"
         ),
-        escaped,
+        escape_markdown(line),
     )
+    if not highlight:
+        return escaped
+    # Escaping never touches digits, dots or commas, so numbers survive it intact.
+    return NUMBER.sub(lambda match: _mark(match[0], highlight), escaped)
+
+
+def _mark(token: str, highlight: Set[float]) -> str:
+    if not number_readings(token) & highlight:
+        return token
+    number = token.rstrip()  # NUMBER may swallow the space before the next table cell
+    return f":orange-background[**{number}**]{token[len(number) :]}"
