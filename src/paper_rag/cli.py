@@ -1,4 +1,8 @@
+import importlib.util
 import json
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
@@ -302,6 +306,36 @@ def serve(
     import uvicorn
 
     uvicorn.run("paper_rag.api:app", host=host, port=port, reload=False)
+
+
+@app.command()
+def ui(
+    api_url: Annotated[str, typer.Option(help="Address of `paper-rag serve`.")] = (
+        "http://127.0.0.1:8000"
+    ),
+    port: Annotated[int, typer.Option(min=1, max=65535)] = 8501,
+    headless: Annotated[bool, typer.Option(help="Do not open the browser.")] = False,
+) -> None:
+    """Run the Streamlit chat screen over the HTTP API (needs the `ui` extra)."""
+    if importlib.util.find_spec("streamlit") is None:
+        typer.echo("Install the screen with `python -m pip install -e '.[ui]'`.", err=True)
+        raise typer.Exit(code=1)
+    script = Path(__file__).with_name("ui") / "app.py"
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(script),
+        "--server.port",
+        str(port),
+        "--server.headless",
+        str(headless).lower(),
+        "--browser.gatherUsageStats",
+        "false",
+    ]
+    env = os.environ | {"PAPER_RAG_API_URL": api_url}
+    raise typer.Exit(code=subprocess.call(command, env=env))
 
 
 if __name__ == "__main__":

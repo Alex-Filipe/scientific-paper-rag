@@ -86,3 +86,23 @@ def test_ingest_and_ask_commands(tmp_path: Path, monkeypatch: MonkeyPatch) -> No
     assert answered.exit_code == 0
     assert "retrieve:" in answered.stdout
     assert "[1]  Chunking" in answered.stdout
+
+
+def test_ui_command_runs_streamlit_against_the_api(monkeypatch: MonkeyPatch) -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def fake_call(command: list[str], env: dict[str, str]) -> int:
+        calls.append((command, env))
+        return 0
+
+    monkeypatch.setattr("paper_rag.cli.subprocess.call", fake_call)
+
+    result = runner.invoke(app, ["ui", "--api-url", "http://127.0.0.1:9000", "--headless"])
+
+    assert result.exit_code == 0
+    [(command, env)] = calls
+    assert command[1:4] == ["-m", "streamlit", "run"]
+    assert Path(command[4]).name == "app.py" and Path(command[4]).exists()
+    assert command[command.index("--server.headless") + 1] == "true"
+    assert command[command.index("--browser.gatherUsageStats") + 1] == "false"
+    assert env["PAPER_RAG_API_URL"] == "http://127.0.0.1:9000"

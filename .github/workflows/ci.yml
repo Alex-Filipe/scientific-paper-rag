@@ -18,7 +18,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install project
-        run: python -m pip install -e ".[dev,semantic,openai]"
+        run: python -m pip install -e ".[dev,semantic,openai,ui]"
       - name: Lint
         run: ruff check .
       - name: Type check

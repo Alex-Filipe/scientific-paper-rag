@@ -32,6 +32,7 @@ dev = [
 ]
 semantic = ["fastembed>=0.8,<0.9"]
 openai = ["langchain-openai>=1.8,<2.0"]
+ui = ["httpx>=0.28,<1.0", "streamlit>=1.50,<2.0"]
 
 [project.scripts]
 paper-rag = "paper_rag.cli:app"
@@ -40,7 +41,7 @@ paper-rag = "paper_rag.cli:app"
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=paper_rag --cov-report=term-missing --cov-fail-under=75"
+addopts = "-q --cov=src/paper_rag --cov-report=term-missing --cov-fail-under=75"
 pythonpath = ["src"]
 testpaths = ["tests"]
 
