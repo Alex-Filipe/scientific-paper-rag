@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,7 +14,7 @@ from paper_rag.documents import load_file, make_splitter, split_into_chunks
 from paper_rag.embeddings import create_embeddings
 from paper_rag.generation import GenerationBackend, create_chat_model, create_grader_model
 from paper_rag.graph import RagNodes, RagState, build_graph
-from paper_rag.models import Answer, AnswerStatus, Citation, Step
+from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
 from paper_rag.retrieval import HybridSearch, RetrievalMode
 from paper_rag.settings import Settings
 from paper_rag.vectorstore import ChunkIndex
@@ -41,6 +41,8 @@ class RagService:
     splitter: RecursiveCharacterTextSplitter
     graph: CompiledStateGraph[RagState, None, RagState, RagState]
     default_top_k: int = 4
+    settings: Settings = field(default_factory=Settings)
+    """Settings the service was built from; only used to describe it (`config`)."""
 
     def ingest_text(self, title: str, text: str, source: str) -> int:
         return self._ingest([Document(page_content=text)], title=title, source=source)
@@ -55,8 +57,52 @@ class RagService:
     def retrieve(self, question: str, top_k: int) -> list[Document]:
         return self.search.search(question, top_k)
 
-    def ask(self, question: str, top_k: int | None = None) -> Answer:
-        return _to_answer(self.graph.invoke(self._initial_state(question, top_k)))
+    def documents(self) -> list[DocumentInfo]:
+        """Indexed documents with their chunk and page counts, sorted by title."""
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for metadata in self.search.index.all_metadata():
+            grouped.setdefault(str(metadata.get("document_id", "")), []).append(metadata)
+        documents = []
+        for document_id, chunks in grouped.items():
+            pages = [page for chunk in chunks if isinstance(page := chunk.get("page"), int)]
+            documents.append(
+                DocumentInfo(
+                    document_id=document_id,
+                    title=str(chunks[0].get("document_title", "")),
+                    source=str(chunks[0].get("source", "")),
+                    chunks=len(chunks),
+                    pages=max(pages) if pages else None,
+                )
+            )
+        return sorted(documents, key=lambda document: (document.title.casefold(), document.source))
+
+    def config(self) -> ServiceConfig:
+        settings = self.settings
+        backend = settings.generation_backend
+        model = {"ollama": settings.ollama_model, "openai": settings.openai_model}.get(backend)
+        return ServiceConfig(
+            generation_backend=backend,
+            model=model,
+            grader_model=(settings.grader_model.strip() or None) if model else None,
+            embedding_backend=settings.embedding_backend,
+            retrieval_mode=settings.retrieval_mode,
+            top_k=self.default_top_k,
+            grade_documents=settings.grade_documents,
+            max_rewrites=settings.max_rewrites,
+            validate_numbers=settings.validate_numbers,
+        )
+
+    def ask(
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        grade_documents: bool | None = None,
+        validate_numbers: bool | None = None,
+    ) -> Answer:
+        """Answer a question; `grade_documents`/`validate_numbers` override the settings."""
+        state = self._initial_state(question, top_k, grade_documents, validate_numbers)
+        return _to_answer(self.graph.invoke(state))
 
     def trace(
         self,
@@ -85,9 +131,16 @@ class RagService:
             updates=tuple(updates),
         )
 
-    def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, Any]]:
+    def stream(
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        grade_documents: bool | None = None,
+        validate_numbers: bool | None = None,
+    ) -> Iterator[dict[str, Any]]:
         """Validate eagerly, then yield `step`, `token` and a final `answer` event."""
-        return self._stream(self._initial_state(question, top_k))
+        return self._stream(self._initial_state(question, top_k, grade_documents, validate_numbers))
 
     def _stream(self, initial_state: RagState) -> Iterator[dict[str, Any]]:
         final_state: dict[str, Any] = {}
@@ -113,19 +166,30 @@ class RagService:
         self.search.index.replace_document(str(chunks[0].metadata["document_id"]), chunks)
         return len(chunks)
 
-    def _initial_state(self, question: str, top_k: int | None) -> RagState:
+    def _initial_state(
+        self,
+        question: str,
+        top_k: int | None,
+        grade_documents: bool | None = None,
+        validate_numbers: bool | None = None,
+    ) -> RagState:
         if not question.strip():
             raise ValueError("Question cannot be empty")
         limit = top_k or self.default_top_k
         if limit <= 0:
             raise ValueError("top_k must be positive")
-        return {
+        state: RagState = {
             "question": question,
             "top_k": limit,
             "search_query": question.strip(),
             "rewrites": 0,
             "steps": [],
         }
+        if grade_documents is not None:
+            state["grade_documents"] = grade_documents
+        if validate_numbers is not None:
+            state["validate_numbers"] = validate_numbers
+        return state
 
 
 def _to_answer(state: dict[str, Any]) -> Answer:
@@ -186,4 +250,5 @@ def build_service(settings: Settings | None = None) -> RagService:
         splitter=make_splitter(resolved.chunk_size, resolved.chunk_overlap),
         graph=build_graph(nodes),
         default_top_k=resolved.top_k,
+        settings=resolved,
     )

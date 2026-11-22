@@ -50,6 +50,10 @@ class RagState(TypedDict, total=False):
     status: AnswerStatus
     cited: list[int]
     steps: Annotated[list[Step], operator.add]
+    grade_documents: bool
+    """Per-question override of `RagNodes.grade_documents`."""
+    validate_numbers: bool
+    """Per-question override of `RagNodes.validate_numbers`."""
 
 
 @dataclass(slots=True)
@@ -81,7 +85,7 @@ class RagNodes:
         contexts = state["contexts"]
         if not contexts:
             return {"steps": [Step("grade", "Nenhum trecho para avaliar.")]}
-        if self.llm is None or not self.grade_documents:
+        if self.llm is None or not state.get("grade_documents", self.grade_documents):
             return {"steps": [Step("grade", "Avaliação pulada (sem LLM ou desativada).")]}
 
         # Sequential calls keep replies aligned with chunks (and local servers serialize anyway).
@@ -160,7 +164,7 @@ class RagNodes:
         cited = cited_indexes(draft, len(contexts))
         if cited is None:
             return _fallback(contexts, "Citações ausentes ou inválidas; mostrando evidências.")
-        if self.validate_numbers:
+        if state.get("validate_numbers", self.validate_numbers):
             sources = [contexts[index - 1].page_content for index in cited]
             missing = unsupported_numbers(draft, state["question"], sources)
             if missing:

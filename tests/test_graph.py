@@ -236,3 +236,25 @@ def test_miscited_number_is_recited_to_the_matching_chunk(
     assert answer.text == f"O erro da plain network é 28.54% [{results}]."
     assert [citation.index for citation in answer.citations if citation.cited] == [results]
     assert answer.steps[-1].detail.startswith(f"Citação corrigida de [{wrong}] para [{results}]")
+
+
+def test_question_options_override_node_defaults(service: RagService) -> None:
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from paper_rag.generation import GenerationBackend
+    from paper_rag.graph import RagNodes, build_graph
+
+    service.graph = build_graph(
+        RagNodes(
+            search=service.search,
+            llm=FakeListChatModel(responses=["sim", "RAG recupera 42 documentos [1]."]),
+            backend=GenerationBackend.OLLAMA,
+            grade_documents=False,
+            validate_numbers=True,
+        )
+    )
+
+    answer = service.ask("O que é RAG?", grade_documents=True, validate_numbers=False)
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.steps[1].detail == "1 de 1 trecho(s) úteis."

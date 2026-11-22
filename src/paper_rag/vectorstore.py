@@ -1,6 +1,7 @@
 import hashlib
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from chromadb.config import Settings as ChromaSettings
 from langchain_chroma import Chroma
@@ -44,6 +45,11 @@ class ChunkIndex:
                 stored["ids"], stored["documents"], stored["metadatas"], strict=True
             )
         ]
+
+    def all_metadata(self) -> list[dict[str, Any]]:
+        """Metadata of every chunk, without loading texts or vectors."""
+        stored = self.store.get(include=["metadatas"])
+        return [dict(metadata or {}) for metadata in stored["metadatas"] or []]
 
     def count(self) -> int:
         return len(self.store.get(include=[])["ids"])

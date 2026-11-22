@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -21,6 +22,13 @@ class DocumentRequest(BaseModel):
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1)
     top_k: int | None = Field(default=None, gt=0, le=20)
+    grade_documents: bool | None = None
+    """Override `RAG_GRADE_DOCUMENTS` for this question (needs an LLM)."""
+    validate_numbers: bool | None = None
+    """Override `RAG_VALIDATE_NUMBERS` for this question."""
+
+    def options(self) -> dict[str, bool | None]:
+        return {"grade_documents": self.grade_documents, "validate_numbers": self.validate_numbers}
 
 
 def _sse(event: str, data: object) -> str:
@@ -34,6 +42,14 @@ def create_app(service: RagService | None = None) -> FastAPI:
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/config")
+    def describe_config() -> dict[str, object]:
+        return asdict(rag.config())
+
+    @application.get("/documents")
+    def list_documents() -> list[dict[str, object]]:
+        return [asdict(document) for document in rag.documents()]
 
     @application.post("/documents", status_code=201)
     def ingest_document(request: DocumentRequest) -> dict[str, int]:
@@ -62,7 +78,7 @@ def create_app(service: RagService | None = None) -> FastAPI:
     @application.post("/questions")
     def ask_question(request: QuestionRequest) -> dict[str, object]:
         try:
-            answer = rag.ask(request.question, request.top_k)
+            answer = rag.ask(request.question, request.top_k, **request.options())
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except (ConnectionError, RuntimeError) as error:
@@ -73,7 +89,7 @@ def create_app(service: RagService | None = None) -> FastAPI:
     def stream_question(request: QuestionRequest) -> StreamingResponse:
         """Server-Sent Events: `step`, `token`, then `answer` (or `error`)."""
         try:
-            events = rag.stream(request.question, request.top_k)
+            events = rag.stream(request.question, request.top_k, **request.options())
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
