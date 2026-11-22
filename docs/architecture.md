@@ -23,6 +23,7 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 | `vectorstore.py` | `ChunkIndex`: coleção Chroma persistente por espaço de embeddings |
 | `retrieval.py` | `BM25Retriever`, `RRFRetriever` e `HybridSearch` (BM25 + vetores via RRF) |
 | `generation.py` | Prompts, fábrica de modelos de chat, validação de citações e modo extrativo |
+| `numbers.py` | Leitura de números (`4,49`/`4.49`, `50k`) usada pelo `validate` e pela tela, sem LangChain |
 | `graph.py` | Grafo LangGraph corretivo |
 | `service.py` | `RagService`: ingestão, busca, `ask` e `stream`, usado por CLI, API e avaliação |
 | `models.py` | Resposta estruturada: texto, status, citações (com página) e passos do grafo |
@@ -246,12 +247,18 @@ chat:          POST /questions/stream -> step (st.status) -> token (st.write_str
   (`RAG_GRADER_MODEL`) continuam fixos ao subir a API, e a tela só os mostra. Com o grade ligado e
   sem avaliador separado, a tela avisa que o 1,5B troca acertos por abstenções.
 - **Fontes:** cada trecho recuperado vira um `st.expander` com título e página, aberto quando foi
-  citado. Mostra o campo `excerpt` da API (os primeiros 280 caracteres do trecho), não o PDF.
-- **Recarga de módulos:** quando um arquivo do projeto muda, o Streamlit descarrega todos os
-  módulos `paper_rag`. Um `ApiClient` guardado na sessão passaria a emitir eventos das classes
-  antigas, e os `isinstance` das novas descartariam tudo (a resposta sumia em silêncio). Por isso
-  a sessão guarda só o `httpx.Client` e o `ApiClient` é recriado a cada execução; o status é
-  comparado por valor, não por identidade.
+  citado, com o **trecho inteiro** (campo `text` da citação; o `excerpt` tem só os 280 primeiros
+  caracteres e muitas vezes não chega ao número citado), não o PDF. Numa resposta aceita, os
+  números que ela acrescenta à pergunta, os mesmos que o `validate` procurou, aparecem grifados
+  em todos os trechos (`numbers.claimed_readings`, com as mesmas leituras `4,49`/`4.49`).
+- **Compatibilidade:** o cliente ignora campos que não conhece e transforma payloads inesperados
+  em `ApiError`, para que uma API mais nova não derrube a tela com um traceback.
+- **Recarga de módulos:** quando um arquivo muda, o Streamlit descarrega os módulos da pasta da
+  tela (`paper_rag.ui.*`), mas não os outros módulos do pacote. Um `ApiClient` guardado na sessão
+  passaria a emitir eventos das classes antigas, e os `isinstance` das novas descartariam tudo (a
+  resposta sumia em silêncio). Por isso a sessão guarda só o `httpx.Client` e o `ApiClient` é
+  recriado a cada execução; o status é comparado por valor, não por identidade. Mudanças fora de
+  `ui/` (por exemplo, em `models.py`) só valem depois de reiniciar a tela.
 - **Testes sem rede nem LLM:** o cliente roda contra o `TestClient` da própria API (que é um
   `httpx.Client`) e contra `httpx.MockTransport`; a tela roda pelo `AppTest` do Streamlit, com o
   modelo falso dos testes do grafo. O coverage mede `src/paper_rag` por pasta, porque o Streamlit
@@ -261,10 +268,11 @@ chat:          POST /questions/stream -> step (st.status) -> token (st.write_str
 ResNet pela tela (42 trechos, 9 páginas, como na CLI); perguntas com o passo a passo aparecendo
 durante a execução e os tokens chegando antes do selo; uma pergunta com "avaliar trechos" ligado
 (3 de 4 trechos mantidos) e uma sem resposta no artigo (BLEU no WMT14), em que o modelo se absteve
-com palavras próprias e citou `[1-3]`, e o `validate` a trocou por `fallback`. Limitação vista: na
-pergunta sobre o erro top-1 da plain-34, a resposta citava 28,54% em `[1]` e a validação aceitou,
-mas o `excerpt` mostrava só a Tabela 1, que vem antes no trecho. Os 280 caracteres nem sempre
-contêm o número citado.
+com palavras próprias e citou `[1-3]`, e o `validate` a trocou por `fallback`. Na pergunta sobre o
+erro top-1 da plain-34, a resposta citava 28,54% em `[1]` e o `excerpt` mostrava só a Tabela 1 do
+começo do trecho; com o trecho inteiro, a linha `34 layers 28.54 25.03` da Tabela 2 aparece com o
+número grifado. Na pergunta sobre o top-5 do ResNet-152 com modelo único, o 5,71% grifado em três
+linhas mostra que a resposta veio da Tabela 3 (10-crop), não da linha de modelo único.
 
 ## Comparação com a versão manual (`v0.1.0-manual`)
 

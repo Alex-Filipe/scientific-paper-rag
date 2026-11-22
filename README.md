@@ -46,7 +46,7 @@ API interativa: `http://127.0.0.1:8000/docs`.
 | `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, `top_k` e chaves padrão |
 | `POST /documents` | Ingere texto (`title`, `text`, `source`) |
 | `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md`; reenviar o mesmo nome substitui a versão anterior |
-| `POST /questions` | Resposta estruturada: texto, status, citações com página e passos do grafo |
+| `POST /questions` | Resposta estruturada: texto, status, citações (página, trecho inteiro em `text` e início em `excerpt`) e passos do grafo |
 | `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` (o `answer` final prevalece sobre os tokens) |
 
 As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opcionais
@@ -58,8 +58,8 @@ As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opci
 Chat sobre a API: barra lateral com os artigos indexados, upload, modelo (só leitura), top-k e as
 chaves "avaliar trechos" e "validar números"; os passos do grafo aparecem enquanto a resposta é
 gerada, e cada resposta traz o selo do status (`respondida`, `fallback`, `abstenção`, `extrativa`)
-e as fontes com página, com as citadas destacadas. A tela só conversa com a API, então suba as duas
-em terminais separados:
+e as fontes com página: o trecho inteiro, com as citadas abertas e os números da resposta grifados.
+A tela só conversa com a API, então suba as duas em terminais separados:
 
 ```bash
 python -m pip install -e ".[ui]"
