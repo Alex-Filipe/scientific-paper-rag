@@ -2,6 +2,7 @@ import hashlib
 import re
 import unicodedata
 from collections.abc import Iterator, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 from langchain_core.document_loaders import BaseLoader
@@ -13,11 +14,19 @@ _LOWERCASE = "a-zà-öø-ÿ"
 HYPHENATED_LINE_BREAK = re.compile(rf"(?<=[{_LOWERCASE}])-[ \t]*\n[ \t]*(?=[{_LOWERCASE}])")
 
 
+class PdfParser(StrEnum):
+    PYPDF = "pypdf"
+    """Text layer of each page; fast and light, but keeps PDF typesetting artifacts."""
+    DOCLING = "docling"
+    """Layout and table models (optional extra `docling`); adds the `section` of each block."""
+
+
 class PaperLoader(BaseLoader):
     """Load PDFs page by page (0-based `page` metadata) and text/Markdown as one document."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, parser: PdfParser | str = PdfParser.PYPDF) -> None:
         self.path = path
+        self.parser = PdfParser(parser)
 
     def lazy_load(self) -> Iterator[Document]:
         suffix = self.path.suffix.casefold()
@@ -28,6 +37,12 @@ class PaperLoader(BaseLoader):
             yield Document(
                 page_content=self.path.read_text(encoding="utf-8"), metadata={"source": source}
             )
+            return
+
+        if self.parser is PdfParser.DOCLING:
+            from paper_rag.docling_parser import load_pdf_with_docling
+
+            yield from load_pdf_with_docling(self.path, source)
             return
 
         from pypdf import PdfReader
@@ -71,9 +86,33 @@ def make_document_id(source: str, title: str) -> str:
     return hashlib.sha256(f"{source}:{title}".encode()).hexdigest()[:16]
 
 
-def load_file(path: Path) -> list[Document]:
-    """Load a file into LangChain documents; PDFs yield one document per page."""
-    return PaperLoader(path).load()
+def load_file(path: Path, parser: PdfParser | str = PdfParser.PYPDF) -> list[Document]:
+    """Load a file into LangChain documents; PDFs yield at least one document per page."""
+    return PaperLoader(path, parser).load()
+
+
+def chunk_sections(
+    text: str, chunks: Sequence[str], sections: Sequence[tuple[int, str]]
+) -> list[str]:
+    """Label each chunk with the section that covers most of it.
+
+    `sections` holds `(offset, heading)` pairs in ascending offset order, as the docling parser
+    gives them per page. Chunks are located in order (they overlap, so each search starts just
+    after the previous chunk's start); a chunk that cannot be found keeps the previous position.
+    """
+    if not sections:
+        return [""] * len(chunks)
+    ends = [start for start, _ in sections[1:]] + [len(text)]
+    ranges = [(start, end, heading) for (start, heading), end in zip(sections, ends, strict=True)]
+    labels: list[str] = []
+    cursor = 0
+    for chunk in chunks:
+        found = text.find(chunk, cursor)
+        start = found if found >= 0 else cursor
+        end = start + len(chunk)
+        cursor = start + 1
+        labels.append(max(ranges, key=lambda item: min(end, item[1]) - max(start, item[0]))[2])
+    return labels
 
 
 def split_into_chunks(
@@ -83,7 +122,11 @@ def split_into_chunks(
     source: str,
     splitter: RecursiveCharacterTextSplitter,
 ) -> list[Document]:
-    """Split pages into chunks carrying only the metadata the RAG needs."""
+    """Split pages into chunks carrying only the metadata the RAG needs.
+
+    Each page is split on its own, so a chunk never crosses a page. Pages that list their
+    `sections` (docling parser) give each chunk the section covering most of it.
+    """
     clean_title = title.strip()
     if not clean_title:
         raise ValueError("Document title cannot be empty")
@@ -94,9 +137,9 @@ def split_into_chunks(
     chunks: list[Document] = []
     for page in pages:
         page_number = page.metadata.get("page")
-        for text in splitter.split_text(page.page_content):
-            if not text.strip():
-                continue
+        texts = [text for text in splitter.split_text(page.page_content) if text.strip()]
+        sections = chunk_sections(page.page_content, texts, page.metadata.get("sections") or ())
+        for text, section in zip(texts, sections, strict=True):
             position = len(chunks)
             chunk_id = f"{document_id}:{position}"
             metadata: dict[str, str | int] = {
@@ -108,5 +151,7 @@ def split_into_chunks(
             }
             if isinstance(page_number, int):
                 metadata["page"] = page_number + 1
+            if section:
+                metadata["section"] = section
             chunks.append(Document(page_content=text, metadata=metadata, id=chunk_id))
     return chunks

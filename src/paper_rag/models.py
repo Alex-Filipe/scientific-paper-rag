@@ -28,6 +28,8 @@ class Citation:
     cited: bool
     text: str = ""
     """The whole chunk; `excerpt` holds only its beginning, which may miss the cited number."""
+    section: str = ""
+    """Section heading of the chunk (docling parser); empty when the parser has no sections."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +65,7 @@ class ServiceConfig:
     grade_documents: bool
     max_rewrites: int
     validate_numbers: bool
+    pdf_parser: str = "pypdf"
 
 
 @dataclass(frozen=True, slots=True)

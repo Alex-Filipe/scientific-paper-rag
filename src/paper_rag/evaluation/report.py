@@ -122,9 +122,11 @@ def format_report(records: Records) -> str:
     """One section per embedding backend; columns are the graph configurations."""
     if not records:
         return "No records."
-    groups: dict[tuple[str, str, str], list[GenerationRecord]] = defaultdict(list)
+    groups: dict[tuple[str, str, str, str], list[GenerationRecord]] = defaultdict(list)
     for record in records:
-        groups[(record.embedding, record.model, record.grader_model)].append(record)
+        groups[(record.embedding, record.model, record.grader_model, record.pdf_parser)].append(
+            record
+        )
     return "\n\n".join(_format_embedding(group) for group in groups.values())
 
 
@@ -141,7 +143,7 @@ def _format_embedding(records: Records) -> str:
     lines = [
         f"### {first.embedding} — {first.model}"
         + (f" (grade/rewrite: {first.grader_model})" if first.grader_model != first.model else "")
-        + f", top_k={first.top_k}, {len(runs)} run(s), "
+        + f", top_k={first.top_k}, PDF parser {first.pdf_parser}, {len(runs)} run(s), "
         f"{len(cases)} cases ({answerable} answerable, {len(cases) - answerable} unanswerable)",
         "",
         "Rates are mean ± sd across runs (min–max).",

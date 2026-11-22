@@ -33,6 +33,7 @@ dev = [
 semantic = ["fastembed>=0.8,<0.9"]
 openai = ["langchain-openai>=1.8,<2.0"]
 ui = ["httpx>=0.28,<1.0", "streamlit>=1.50,<2.0"]
+docling = ["docling>=2.151,<3"]
 
 [project.scripts]
 paper-rag = "paper_rag.cli:app"
@@ -59,6 +60,15 @@ files = ["src/paper_rag"]
 follow_imports_for_stubs = true
 
 [[tool.mypy.overrides]]
-module = ["fastembed", "fastembed.*", "numpy", "numpy.*", "rank_bm25", "rank_bm25.*"]
+module = [
+  "docling",
+  "docling.*",
+  "fastembed",
+  "fastembed.*",
+  "numpy",
+  "numpy.*",
+  "rank_bm25",
+  "rank_bm25.*",
+]
 follow_imports = "skip"
 ignore_missing_imports = true

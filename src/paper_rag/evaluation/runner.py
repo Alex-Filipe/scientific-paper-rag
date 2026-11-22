@@ -257,6 +257,7 @@ class GenerationEvaluator:
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             steps=tuple(f"{step.node}: {step.detail}" for step in answer.steps),
+            pdf_parser=self.services[config].settings.pdf_parser,
         )
 
 

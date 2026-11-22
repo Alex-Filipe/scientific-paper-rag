@@ -7,7 +7,9 @@ from paper_rag.ui.client import AnswerEvent, ErrorEvent, StepEvent, TokenEvent
 FIX = Step("validate", "Citação corrigida de [1] para [2], o trecho que contém 4.49.")
 
 
-def citation(index: int = 1, *, cited: bool = True, page: int | None = 7) -> Citation:
+def citation(
+    index: int = 1, *, cited: bool = True, page: int | None = 7, section: str = ""
+) -> Citation:
     return Citation(
         index=index,
         chunk_id=f"doc:{index}",
@@ -18,6 +20,7 @@ def citation(index: int = 1, *, cited: bool = True, page: int | None = 7) -> Cit
         rank=index,
         score=0.0325,
         cited=cited,
+        section=section,
     )
 
 
@@ -105,6 +108,9 @@ def test_step_markdown_highlights_citation_fixes_and_escapes() -> None:
 def test_source_labels_show_page_and_citation() -> None:
     assert view.source_label(citation(2)) == "[2] Deep Residual Learning, p. 7 · citada"
     assert view.source_label(citation(1, cited=False, page=None)) == "[1] Deep Residual Learning"
+    assert view.source_label(citation(3, section="4.1. ImageNet *Classification*")) == (
+        r"[3] Deep Residual Learning, p. 7 · 4.1. ImageNet \*Classification\* · citada"
+    )
     assert view.source_icon(citation(1, cited=False)) == ":material/description:"
     assert view.sources_heading(answer(AnswerStatus.ANSWERED)) == "Fontes"
     assert view.sources_heading(answer(AnswerStatus.FALLBACK)) == "Trechos recuperados"
@@ -121,6 +127,7 @@ def test_document_and_model_descriptions() -> None:
         "Geração: **ollama** · `qwen2.5:1.5b-instruct`",
         "Avaliador (grade): `qwen2.5:7b-instruct`",
         "Busca: hybrid · embeddings hashing",
+        "Leitura de PDF: pypdf",
     ]
     assert view.model_lines(config(generation_backend="extractive", model=None))[0] == (
         "Geração: **extractive** (sem LLM)"

@@ -32,6 +32,8 @@ class Settings:
     grader_model: str = ""
     """Model for the grade and rewrite nodes; empty means the generation model."""
     validate_numbers: bool = True
+    pdf_parser: str = "pypdf"
+    """`pypdf` (text layer) or `docling` (layout and table models, optional extra)."""
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -54,4 +56,5 @@ class Settings:
             max_rewrites=int(os.getenv("RAG_MAX_REWRITES", str(defaults.max_rewrites))),
             grader_model=os.getenv("RAG_GRADER_MODEL", defaults.grader_model),
             validate_numbers=_env_bool("RAG_VALIDATE_NUMBERS", defaults.validate_numbers),
+            pdf_parser=os.getenv("RAG_PDF_PARSER", defaults.pdf_parser),
         )

@@ -110,6 +110,7 @@ def test_config_describes_the_service_settings(make_service: ServiceFactory) -> 
     assert (extractive["model"], extractive["grader_model"]) == (None, None)
     assert (extractive["top_k"], extractive["grade_documents"]) == (4, False)
     assert extractive["validate_numbers"] is True
+    assert extractive["pdf_parser"] == "pypdf"
     assert ollama.json()["model"] == "qwen2.5:1.5b-instruct"
     assert ollama.json()["grader_model"] == "qwen2.5:7b-instruct"
 

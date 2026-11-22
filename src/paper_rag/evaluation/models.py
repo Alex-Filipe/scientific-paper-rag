@@ -142,6 +142,8 @@ class GenerationRecord:
     input_tokens: int
     output_tokens: int
     steps: tuple[str, ...]
+    pdf_parser: str = "pypdf"
+    """PDF parser of the ingested papers (files written before the option used pypdf)."""
 
     @property
     def total_llm_calls(self) -> int:

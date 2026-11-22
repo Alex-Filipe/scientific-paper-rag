@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph.state import CompiledStateGraph
 
-from paper_rag.documents import load_file, make_splitter, split_into_chunks
+from paper_rag.documents import PdfParser, load_file, make_splitter, split_into_chunks
 from paper_rag.embeddings import create_embeddings
 from paper_rag.generation import GenerationBackend, create_chat_model, create_grader_model
 from paper_rag.graph import RagNodes, RagState, build_graph
@@ -51,7 +51,9 @@ class RagService:
         """Ingest a file; `source` (default: absolute path) and title identify the document,
         so ingesting the same source again replaces it instead of duplicating it."""
         return self._ingest(
-            load_file(path), title=title or path.stem, source=source or str(path.resolve())
+            load_file(path, self.settings.pdf_parser),
+            title=title or path.stem,
+            source=source or str(path.resolve()),
         )
 
     def retrieve(self, question: str, top_k: int) -> list[Document]:
@@ -90,6 +92,7 @@ class RagService:
             grade_documents=settings.grade_documents,
             max_rewrites=settings.max_rewrites,
             validate_numbers=settings.validate_numbers,
+            pdf_parser=settings.pdf_parser,
         )
 
     def ask(
@@ -207,6 +210,7 @@ def _to_answer(state: dict[str, Any]) -> Answer:
             score=float(context.metadata.get("score", 0.0)),
             cited=index in cited,
             text=context.page_content,
+            section=str(context.metadata.get("section", "")),
         )
         for index, context in enumerate(contexts, start=1)
     )
@@ -226,6 +230,7 @@ def _optional_int(value: object) -> int | None:
 
 def build_service(settings: Settings | None = None) -> RagService:
     resolved = settings or Settings.from_environment()
+    PdfParser(resolved.pdf_parser)  # fail at startup, not at the first upload
     configured = create_embeddings(
         backend=resolved.embedding_backend,
         model_name=resolved.embedding_model,

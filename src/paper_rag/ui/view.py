@@ -197,8 +197,9 @@ def format_score(score: float) -> str:
 
 def source_label(citation: Citation) -> str:
     page = f", p. {citation.page}" if citation.page is not None else ""
+    section = f" · {escape_markdown(citation.section)}" if citation.section else ""
     cited = " · citada" if citation.cited else ""
-    return f"[{citation.index}] {escape_markdown(citation.title)}{page}{cited}"
+    return f"[{citation.index}] {escape_markdown(citation.title)}{page}{section}{cited}"
 
 
 def source_icon(citation: Citation) -> str:
@@ -223,6 +224,7 @@ def model_lines(config: ServiceConfig) -> list[str]:
         if config.grader_model:
             lines.append(f"Avaliador (grade): `{config.grader_model}`")
     lines.append(f"Busca: {config.retrieval_mode} · embeddings {config.embedding_backend}")
+    lines.append(f"Leitura de PDF: {config.pdf_parser}")
     return lines
 
 

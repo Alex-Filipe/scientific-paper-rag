@@ -232,7 +232,11 @@ def test_run_interleaves_configs_and_reports(
     assert records[0].grader_model == "fake"
     legacy = {key: value for key, value in records[0].to_dict().items() if key != "grader_model"}
     assert GenerationRecord.from_dict(legacy).grader_model == "fake"  # older JSONL files
+    assert records[0].pdf_parser == "pypdf"
+    before_parser = {key: value for key, value in legacy.items() if key != "pdf_parser"}
+    assert GenerationRecord.from_dict(before_parser).pdf_parser == "pypdf"
     report = format_report(records)
+    assert "PDF parser pypdf" in report
     assert "| Metric | linear | grade |" in report
     assert "| Correct abstention (unanswerable) | 100% ± 0 (100%–100%) |" in report
     assert "linear: 0 of 6 cases changed the answer text" in report
