@@ -14,11 +14,11 @@ from paper_rag.generation import (
     format_evidence,
     is_abstention,
     is_usable_query,
-    number_readings,
     parse_grade,
     recitation_target,
     unsupported_numbers,
 )
+from paper_rag.numbers import number_readings
 from paper_rag.settings import Settings
 
 
