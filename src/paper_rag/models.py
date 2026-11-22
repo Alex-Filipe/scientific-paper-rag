@@ -26,6 +26,8 @@ class Citation:
     score: float
     """Reciprocal Rank Fusion score; only meaningful for ordering, not as a probability."""
     cited: bool
+    text: str = ""
+    """The whole chunk; `excerpt` holds only its beginning, which may miss the cited number."""
 
 
 @dataclass(frozen=True, slots=True)

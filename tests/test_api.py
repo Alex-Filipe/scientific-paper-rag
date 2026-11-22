@@ -25,7 +25,8 @@ def test_ingest_and_ask_return_structured_answer(make_service: ServiceFactory) -
     body = response.json()
     assert body["status"] == "extractive"
     assert body["citations"][0]["source"] == "rag"
-    assert {"index", "page", "excerpt", "rank", "cited"} <= set(body["citations"][0])
+    assert {"index", "page", "excerpt", "rank", "cited", "text"} <= set(body["citations"][0])
+    assert body["citations"][0]["text"] == "RAG combines retrieval with generation."
     assert [step["node"] for step in body["steps"]] == ["retrieve", "grade", "generate"]
 
 

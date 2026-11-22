@@ -206,6 +206,7 @@ def _to_answer(state: dict[str, Any]) -> Answer:
             rank=int(context.metadata.get("rank", index)),
             score=float(context.metadata.get("score", 0.0)),
             cited=index in cited,
+            text=context.page_content,
         )
         for index, context in enumerate(contexts, start=1)
     )
