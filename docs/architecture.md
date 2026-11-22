@@ -27,6 +27,7 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 | `service.py` | `RagService`: ingestão, busca, `ask` e `stream`, usado por CLI, API e avaliação |
 | `models.py` | Resposta estruturada: texto, status, citações (com página) e passos do grafo |
 | `api.py` / `cli.py` | Portas de entrada; a API expõe streaming por Server-Sent Events |
+| `ui/` | Tela Streamlit: `client.py` (cliente `httpx` e parser do SSE), `view.py` (lógica de apresentação sem Streamlit) e `app.py` (a tela) |
 | `evaluation/` | Busca: datasets, Recall@K, MRR e gates do CI. Geração: dataset com artigo real, vereditos, auditoria do `grade` e relatório (só CLI) |
 
 ## Grafo LangGraph
@@ -41,7 +42,7 @@ START -> retrieve -> grade --(há trechos úteis)--> generate --(resposta do LLM
 - **retrieve:** busca híbrida com `RAG_CANDIDATE_K` candidatos por ranker e corte final em `top_k`.
 - **grade:** o LLM julga cada trecho separadamente (`sim`/`não`, uma chamada por trecho). Resposta
   ilegível mantém o trecho. Opcional: `RAG_GRADE_DOCUMENTS=true` (padrão `false`; sem LLM é sempre
-  pulado).
+  pulado), ou `grade_documents` numa pergunta da API.
 - **rewrite:** o LLM reescreve a pergunta como consulta técnica. Limitado por `RAG_MAX_REWRITES`
   (padrão `0`). `grade` e `rewrite` podem usar outro modelo com `RAG_GRADER_MODEL`.
   Se a consulta reescrita não tiver palavras (por exemplo, só um número), a pergunta original é
@@ -54,7 +55,7 @@ START -> retrieve -> grade --(há trechos úteis)--> generate --(resposta do LLM
   ignora as referências do artigo (`[10, 41]`). Se a resposta cita um único trecho e os números
   estão em outro trecho recuperado, numa linha que também tem uma palavra da pergunta (como em
   `34 layers 28.54 25.03`), a citação é corrigida para esse trecho. Nos demais casos, mostra as
-  evidências (`fallback`).
+  evidências (`fallback`). `validate_numbers` numa pergunta da API substitui `RAG_VALIDATE_NUMBERS`.
 - **abstain:** responde que não há evidência suficiente.
 
 Cada nó registra um `Step`. Em `POST /questions/stream` os passos chegam como eventos `step`, os
@@ -221,6 +222,50 @@ corretas passam a citar o trecho certo. A regra foi escolhida olhando estes mesm
 o ganho é otimista. A checagem não pega números copiados da linha errada do trecho citado (o
 5,71% da Tabela 3 no lugar do 4,49%), nem respostas sem números.
 
+## Tela (Streamlit)
+
+`paper-rag ui` roda `streamlit run src/paper_rag/ui/app.py` com o endereço da API em
+`PAPER_RAG_API_URL` (padrão `http://127.0.0.1:8000`). A tela não importa o serviço: tudo passa
+pela API, como faria um front-end separado.
+
+```text
+barra lateral: GET /config, GET /documents, POST /documents/upload, top-k e chaves por pergunta
+chat:          POST /questions/stream -> step (st.status) -> token (st.write_stream) -> answer
+```
+
+- **SSE por POST:** o `EventSource` do navegador só faz GET, então `client.py` lê o
+  `text/event-stream` da resposta `httpx` linha a linha (`parse_sse`, regras do WHATWG: `event:`,
+  `data:` em várias linhas, comentários, evento incompleto descartado) e entrega eventos tipados
+  (`StepEvent`, `TokenEvent`, `AnswerEvent`, `ErrorEvent`).
+- **Tokens antes da validação:** os tokens do `generate` aparecem enquanto chegam, mas o texto
+  final vem do evento `answer`, que pode ter a citação corrigida ou ter virado `fallback`. Quando
+  vira `fallback`, o rascunho descartado fica num expander com o motivo dado pelo `validate`, e a
+  correção de citação aparece em destaque.
+- **Chaves por pergunta:** "avaliar trechos" e "validar números" vão no corpo da pergunta
+  (`grade_documents`, `validate_numbers`) e entram no estado do grafo; o modelo e o avaliador
+  (`RAG_GRADER_MODEL`) continuam fixos ao subir a API, e a tela só os mostra. Com o grade ligado e
+  sem avaliador separado, a tela avisa que o 1,5B troca acertos por abstenções.
+- **Fontes:** cada trecho recuperado vira um `st.expander` com título e página, aberto quando foi
+  citado. Mostra o campo `excerpt` da API (os primeiros 280 caracteres do trecho), não o PDF.
+- **Recarga de módulos:** quando um arquivo do projeto muda, o Streamlit descarrega todos os
+  módulos `paper_rag`. Um `ApiClient` guardado na sessão passaria a emitir eventos das classes
+  antigas, e os `isinstance` das novas descartariam tudo (a resposta sumia em silêncio). Por isso
+  a sessão guarda só o `httpx.Client` e o `ApiClient` é recriado a cada execução; o status é
+  comparado por valor, não por identidade.
+- **Testes sem rede nem LLM:** o cliente roda contra o `TestClient` da própria API (que é um
+  `httpx.Client`) e contra `httpx.MockTransport`; a tela roda pelo `AppTest` do Streamlit, com o
+  modelo falso dos testes do grafo. O coverage mede `src/paper_rag` por pasta, porque o Streamlit
+  executa o script como módulo `app`, fora do pacote.
+
+**Teste real** (2026-11-22, `qwen2.5:1.5b-instruct`, hashing, índice novo): upload do PDF do
+ResNet pela tela (42 trechos, 9 páginas, como na CLI); perguntas com o passo a passo aparecendo
+durante a execução e os tokens chegando antes do selo; uma pergunta com "avaliar trechos" ligado
+(3 de 4 trechos mantidos) e uma sem resposta no artigo (BLEU no WMT14), em que o modelo se absteve
+com palavras próprias e citou `[1-3]`, e o `validate` a trocou por `fallback`. Limitação vista: na
+pergunta sobre o erro top-1 da plain-34, a resposta citava 28,54% em `[1]` e a validação aceitou,
+mas o `excerpt` mostrava só a Tabela 1, que vem antes no trecho. Os 280 caracteres nem sempre
+contêm o número citado.
+
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
 Mesmos datasets, `top_k=3`:
@@ -240,5 +285,4 @@ medir qualidade em artigos reais.
 
 1. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
 2. Reranker entre a busca e o grafo.
-3. Tela consumindo a API (resposta estruturada e SSE já disponíveis).
-4. Observabilidade de latência, erros e tokens por consulta.
+3. Observabilidade de latência, erros e tokens por consulta.

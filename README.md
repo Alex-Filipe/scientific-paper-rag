@@ -1,8 +1,9 @@
 # Scientific Paper RAG
 
-RAG backend para consultar artigos científicos com respostas e citações rastreáveis (documento e
-página), construído com **LangChain** e orquestrado por um grafo **LangGraph** corretivo. O modo
-extrativo roda localmente sem Docker, serviço externo ou chave de API; a síntese com LLM é opcional.
+RAG para consultar artigos científicos com respostas e citações rastreáveis (documento e
+página), construído com **LangChain** e orquestrado por um grafo **LangGraph** corretivo, com uma
+tela de chat em **Streamlit** sobre a API. O modo extrativo roda localmente sem Docker, serviço
+externo ou chave de API; a síntese com LLM é opcional.
 
 ```text
 ingestão: documento -> loader -> text splitter -> embeddings -> Chroma
@@ -16,7 +17,7 @@ pergunta: retrieve (BM25 + vetores, RRF) -> grade -> [rewrite -> retrieve] -> ge
 | Busca | Híbrida: BM25+ e vetores fundidos por Reciprocal Rank Fusion |
 | Geração | `ChatOllama` (local) ou `ChatOpenAI` (Responses API), com citações validadas |
 | Orquestração | LangGraph: avalia evidência, reescreve a pergunta e se abstém quando necessário |
-| Entrada | CLI (Typer) e API FastAPI com streaming SSE |
+| Entrada | CLI (Typer), API FastAPI com streaming SSE e tela Streamlit |
 
 Detalhes e decisões em [`docs/architecture.md`](docs/architecture.md).
 
@@ -41,10 +42,38 @@ API interativa: `http://127.0.0.1:8000/docs`.
 
 | Endpoint | Função |
 |---|---|
+| `GET /documents` | Lista os documentos indexados: título, origem, nº de trechos e de páginas |
+| `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, `top_k` e chaves padrão |
 | `POST /documents` | Ingere texto (`title`, `text`, `source`) |
 | `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md`; reenviar o mesmo nome substitui a versão anterior |
 | `POST /questions` | Resposta estruturada: texto, status, citações com página e passos do grafo |
 | `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` (o `answer` final prevalece sobre os tokens) |
+
+As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opcionais
+`grade_documents` e `validate_numbers`, que valem só para aquela pergunta e substituem
+`RAG_GRADE_DOCUMENTS` e `RAG_VALIDATE_NUMBERS`.
+
+## Tela (Streamlit)
+
+Chat sobre a API: barra lateral com os artigos indexados, upload, modelo (só leitura), top-k e as
+chaves "avaliar trechos" e "validar números"; os passos do grafo aparecem enquanto a resposta é
+gerada, e cada resposta traz o selo do status (`respondida`, `fallback`, `abstenção`, `extrativa`)
+e as fontes com página, com as citadas destacadas. A tela só conversa com a API, então suba as duas
+em terminais separados:
+
+```bash
+python -m pip install -e ".[ui]"
+RAG_GENERATION_BACKEND=ollama paper-rag serve
+```
+
+```bash
+paper-rag ui
+```
+
+A tela abre em `http://localhost:8501`. `--api-url` aponta para outra API e `--headless` não abre o
+navegador. As chaves da tela valem por pergunta; o modelo e o avaliador (`RAG_GRADER_MODEL`) são
+escolhidos ao subir a API. Detalhes em
+[`docs/architecture.md`](docs/architecture.md#tela-streamlit).
 
 ## Embeddings semânticos
 
