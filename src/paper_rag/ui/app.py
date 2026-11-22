@@ -120,12 +120,19 @@ def render_result(turn: view.Turn, slot: DeltaGenerator) -> None:
     if answer is None:
         slot.warning("A API encerrou o stream sem enviar a resposta final.")
         return
-    slot.markdown(view.answer_markdown(answer.text))
-    badge = view.STATUS_BADGES[answer.status]
-    st.badge(badge.label, icon=badge.icon, color=badge.color, help=badge.help)
+    if unverified := turn.unverified_draft:
+        # The evidence list the API sent instead repeats the sources below; the draft is the
+        # useful part, so it takes the answer's place with a warning.
+        with slot.container():
+            st.warning(view.UNVERIFIED_WARNING, icon=":material/help:")
+            st.markdown(view.answer_markdown(unverified))
+    else:
+        slot.markdown(view.answer_markdown(answer.text))
+    if badge := view.badge(turn):
+        st.badge(badge.label, icon=badge.icon, color=badge.color, help=badge.help)
     if fix := turn.citation_fix:
         st.info(fix.detail, icon=":material/build:")
-    if draft := turn.discarded_draft:
+    if (draft := turn.discarded_draft) and not unverified:
         with st.expander("Resposta do modelo descartada pela validação", icon=":material/undo:"):
             if note := turn.validation_note:
                 st.caption(note)
@@ -197,7 +204,8 @@ def main() -> None:
     st.set_page_config(page_title="Paper RAG", page_icon=":material/menu_book:")
     client = api_client()
     options = sidebar(client)
-    turns: list[view.Turn] = st.session_state.setdefault("turns", [])
+    turns = [view.revive(turn) for turn in st.session_state.get("turns", [])]
+    st.session_state.turns = turns
 
     st.title("Perguntas sobre os artigos")
     if not turns:

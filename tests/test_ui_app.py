@@ -87,6 +87,25 @@ def test_fallback_shows_the_discarded_draft(service: RagService, with_fake_llm: 
     assert "Evidências mais relevantes encontradas" in texts(app.markdown)
 
 
+def test_uncited_draft_replaces_the_evidence_with_a_warning(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    with_fake_llm(service, ["O ResNet-152 chega a 4.49% de erro top-5."])
+    app = screen(service)
+
+    app.chat_input[0].set_value("Qual o erro top-5?").run()
+
+    assert not app.exception
+    assert "Resposta não verificada" in texts(app.warning)
+    shown = texts(app.markdown)
+    assert "O ResNet-152 chega a 4.49% de erro top-5." in shown
+    assert "Evidências mais relevantes encontradas" not in shown
+    assert ":orange-background" not in shown
+    labels = [expander.label for expander in app.expander]
+    assert "Resposta do modelo descartada pela validação" not in labels
+    assert app.status[0].label.endswith("resposta não verificada")
+
+
 def test_unreachable_api_disables_the_chat() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)

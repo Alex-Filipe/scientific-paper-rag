@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
 from paper_rag.ui import view
@@ -169,3 +169,40 @@ def test_marks_keep_table_spacing_and_skip_unchecked_answers() -> None:
     )
     assert view.highlight_readings(fallback) == set()
     assert view.highlight_readings(view.Turn("Erro?")) == set()
+
+
+def test_uncited_draft_is_shown_as_unverified() -> None:
+    uncited = Step("validate", "Citações ausentes ou inválidas; mostrando evidências.")
+    turn = view.Turn("Erro top-5 do ResNet-152?", steps=[uncited], draft="Chega a 5,71%.")
+    turn.answer = answer(AnswerStatus.FALLBACK, "Evidências mais relevantes encontradas: ...")
+    numbers = view.Turn("Erro?", steps=[Step("validate", "Números sem suporte (5.71)")])
+    numbers.draft, numbers.answer = "Chega a 5,71% [1].", turn.answer
+
+    assert turn.unverified_draft == "Chega a 5,71%."
+    assert view.badge(turn) == view.UNVERIFIED_BADGE
+    assert view.summary_label(turn) == "1 passo · resposta não verificada"
+    assert view.highlight_readings(turn) == set()
+    assert numbers.unverified_draft is None
+    assert view.badge(numbers) == view.STATUS_BADGES[AnswerStatus.FALLBACK]
+    assert view.highlight_readings(numbers) == set()
+    assert view.badge(view.Turn("Erro?")) is None
+
+
+def test_revive_rebuilds_turns_of_a_reloaded_class() -> None:
+    @dataclass
+    class OldTurn:
+        question: str
+        steps: list[Step]
+        draft: str
+        answer: Answer | None
+        error: str | None
+        seconds: float | None
+
+    old = OldTurn("Erro?", [FIX], "", None, None, 1.0)
+    current = view.Turn("Erro?")
+
+    revived = view.revive(old)
+
+    assert isinstance(revived, view.Turn)
+    assert revived.citation_fix == FIX
+    assert view.revive(current) is current

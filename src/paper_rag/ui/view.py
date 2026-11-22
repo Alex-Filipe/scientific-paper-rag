@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable, Iterable, Iterator, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Literal
 
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
@@ -48,6 +48,19 @@ STATUS_BADGES = {
         "Não há evidência suficiente nos artigos indexados.",
     ),
 }
+
+UNVERIFIED_BADGE = Badge(
+    "não verificada",
+    "orange",
+    ":material/help:",
+    "O modelo não citou os trechos, então a validação não conferiu a resposta; confira nas fontes.",
+)
+UNVERIFIED_WARNING = (
+    "Resposta não verificada: o modelo não citou os trechos, então a validação não conferiu nem "
+    "as fontes nem os números. Confira nos trechos recuperados abaixo."
+)
+MISSING_CITATIONS = "Citações ausentes"
+"""Start of the `validate` detail when the draft has no valid `[n]` (see `graph.validate`)."""
 
 STEP_TITLES = {
     "retrieve": "Busca",
@@ -103,6 +116,27 @@ class Turn:
             return None
         return next((step.detail for step in self.steps if step.node == "validate"), None)
 
+    @property
+    def unverified_draft(self) -> str | None:
+        """The draft of a fallback caused only by missing citations, shown flagged as unverified.
+
+        Such a draft is often a faithful paraphrase that forgot its `[n]`, and the evidence shown
+        instead is no better. A draft rejected for unsupported numbers stays hidden: it is wrong.
+        """
+        note = self.validation_note
+        return self.discarded_draft if note and note.startswith(MISSING_CITATIONS) else None
+
+
+def revive(turn: object) -> Turn:
+    """A turn kept in the session, rebuilt with the current `Turn` class if it is an old one.
+
+    Streamlit reloads `paper_rag.ui` when a file changes; turns stored before that are instances
+    of the previous class and would miss any property added since.
+    """
+    if isinstance(turn, Turn):
+        return turn
+    return Turn(**{item.name: getattr(turn, item.name) for item in fields(Turn)})
+
 
 def follow(
     events: Iterable[StreamEvent], turn: Turn, on_step: Callable[[Step], None]
@@ -142,6 +176,8 @@ def summary_label(turn: Turn) -> str:
         label += f" em {format_seconds(turn.seconds)}"
     if turn.citation_fix is not None:
         label += " · citação corrigida"
+    elif turn.unverified_draft is not None:
+        label += " · resposta não verificada"
     elif turn.discarded_draft is not None:
         label += " · resposta descartada"
     return label
@@ -209,11 +245,18 @@ def answer_markdown(text: str) -> str:
     return text.replace("$", r"\$")
 
 
+def badge(turn: Turn) -> Badge | None:
+    if turn.answer is None:
+        return None
+    return UNVERIFIED_BADGE if turn.unverified_draft else STATUS_BADGES[turn.answer.status]
+
+
 def highlight_readings(turn: Turn) -> set[float]:
     """Numbers to mark in the sources: the ones an accepted answer adds to the question.
 
     These are the numbers the `validate` node looked for in the cited chunks, so marking them
-    lets the reader check the support without hunting through a table.
+    lets the reader check the support without hunting through a table. Unverified drafts get
+    none: in practice their numbers were figure and equation references (`Fig. 3`, `Eqn.(1)`).
     """
     if turn.answer is None or turn.answer.status != AnswerStatus.ANSWERED:
         return set()
