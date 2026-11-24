@@ -1,7 +1,7 @@
 import hashlib
 import re
 import unicodedata
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from enum import StrEnum
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 SUPPORTED_SUFFIXES = frozenset({".pdf", ".txt", ".md"})
 _LOWERCASE = "a-zà-öø-ÿ"
 HYPHENATED_LINE_BREAK = re.compile(rf"(?<=[{_LOWERCASE}])-[ \t]*\n[ \t]*(?=[{_LOWERCASE}])")
+REFERENCE_SECTIONS = ("references", "bibliography", "referências", "referencias")
 
 
 class PdfParser(StrEnum):
@@ -91,6 +92,37 @@ def load_file(path: Path, parser: PdfParser | str = PdfParser.PYPDF) -> list[Doc
     return PaperLoader(path, parser).load()
 
 
+def is_reference_section(section: str) -> bool:
+    """True for the bibliography heading ("References", "7. Bibliography", "Referências")."""
+    words = re.sub(r"^[\d.\s]+", "", section).strip().casefold()
+    return words.startswith(REFERENCE_SECTIONS)
+
+
+def drop_sections(page: Document, drop: Callable[[str], bool]) -> Document:
+    """Remove from a page the text of the sections `drop` selects, keeping the offsets right.
+
+    Only pages that list their `sections` (docling parser) can lose text; others are returned
+    as they are.
+    """
+    sections: Sequence[tuple[int, str]] = page.metadata.get("sections") or ()
+    if not any(drop(heading) for _, heading in sections):
+        return page
+    text = page.page_content
+    ends = [start for start, _ in sections[1:]] + [len(text)]
+    parts: list[str] = []
+    kept: list[tuple[int, str]] = []
+    length = 0
+    for (start, heading), end in zip(sections, ends, strict=True):
+        if drop(heading):
+            continue
+        kept.append((length, heading))
+        parts.append(text[start:end])
+        length += end - start
+    return Document(
+        page_content="".join(parts).rstrip(), metadata=page.metadata | {"sections": tuple(kept)}
+    )
+
+
 def chunk_sections(
     text: str, chunks: Sequence[str], sections: Sequence[tuple[int, str]]
 ) -> list[str]:
@@ -121,11 +153,14 @@ def split_into_chunks(
     title: str,
     source: str,
     splitter: RecursiveCharacterTextSplitter,
+    skip_references: bool = False,
 ) -> list[Document]:
     """Split pages into chunks carrying only the metadata the RAG needs.
 
     Each page is split on its own, so a chunk never crosses a page. Pages that list their
-    `sections` (docling parser) give each chunk the section covering most of it.
+    `sections` (docling parser) give each chunk the section covering most of it and, with
+    `skip_references`, leave the bibliography out. `page_count` keeps the number of pages of
+    the document even when its last pages hold only references.
     """
     clean_title = title.strip()
     if not clean_title:
@@ -134,8 +169,10 @@ def split_into_chunks(
         raise ValueError("Document text cannot be empty")
 
     document_id = make_document_id(source, clean_title)
+    numbers = [number for page in pages if isinstance(number := page.metadata.get("page"), int)]
     chunks: list[Document] = []
-    for page in pages:
+    for original in pages:
+        page = drop_sections(original, is_reference_section) if skip_references else original
         page_number = page.metadata.get("page")
         texts = [text for text in splitter.split_text(page.page_content) if text.strip()]
         sections = chunk_sections(page.page_content, texts, page.metadata.get("sections") or ())
@@ -151,7 +188,10 @@ def split_into_chunks(
             }
             if isinstance(page_number, int):
                 metadata["page"] = page_number + 1
+                metadata["page_count"] = max(numbers) + 1
             if section:
                 metadata["section"] = section
             chunks.append(Document(page_content=text, metadata=metadata, id=chunk_id))
+    if not chunks:
+        raise ValueError("Document has no text outside the bibliography")
     return chunks

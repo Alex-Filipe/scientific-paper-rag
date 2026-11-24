@@ -47,7 +47,7 @@ class DocumentInfo:
     source: str
     chunks: int
     pages: int | None
-    """Highest page number among its chunks; None for text documents."""
+    """Number of pages (highest page of older indexes, before `page_count`); None for text."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +66,7 @@ class ServiceConfig:
     max_rewrites: int
     validate_numbers: bool
     pdf_parser: str = "pypdf"
+    index_references: bool = False
 
 
 @dataclass(frozen=True, slots=True)

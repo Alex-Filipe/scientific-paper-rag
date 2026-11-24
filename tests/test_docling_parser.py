@@ -20,12 +20,18 @@ from paper_rag.docling_parser import (
     Span,
     blocks_from_docling,
     clean_docling_text,
-    is_reference_section,
     pages_from_blocks,
     split_by_page,
     table_text,
 )
-from paper_rag.documents import PaperLoader, chunk_sections, make_splitter, split_into_chunks
+from paper_rag.documents import (
+    PaperLoader,
+    chunk_sections,
+    drop_sections,
+    is_reference_section,
+    make_splitter,
+    split_into_chunks,
+)
 from paper_rag.settings import Settings
 
 
@@ -283,3 +289,84 @@ def test_docling_converts_a_real_pdf_page_by_page(tmp_path: Path) -> None:  # pr
     assert [page.metadata["page"] for page in pages] == [0, 1]
     assert "Residual learning eases training." in pages[0].page_content
     assert "4.49%" in pages[1].page_content
+
+
+def test_dropping_a_section_keeps_the_other_offsets_right() -> None:
+    page = Document(
+        page_content=(
+            "5. Conclusion\n\nIt works.\n\nReferences\n\n[1] A. Author.\n\nA. Appendix\n\nMore."
+        ),
+        metadata={
+            "page": 8,
+            "sections": ((0, "5. Conclusion"), (26, "References"), (54, "A. Appendix")),
+        },
+    )
+
+    kept = drop_sections(page, is_reference_section)
+
+    assert kept.page_content == "5. Conclusion\n\nIt works.\n\nA. Appendix\n\nMore."
+    assert kept.metadata["sections"] == ((0, "5. Conclusion"), (26, "A. Appendix"))
+    assert kept.page_content[26:].startswith("A. Appendix")
+    assert kept.metadata["page"] == 8
+    assert drop_sections(page, lambda heading: False) is page
+
+
+def test_bibliography_is_left_out_but_the_page_count_stays() -> None:
+    blocks = [
+        Block(8, "5. Conclusion", heading=True),
+        Block(8, "Residual nets work."),
+        Block(9, "References", heading=True),
+        Block(9, "[1] Y. Bengio. Learning long-term dependencies."),
+    ]
+    pages = pages_from_blocks(blocks, "resnet.pdf")
+    splitter = make_splitter(220, 40)
+
+    kept = split_into_chunks(
+        pages, title="ResNet", source="x", splitter=splitter, skip_references=True
+    )
+    full = split_into_chunks(pages, title="ResNet", source="x", splitter=splitter)
+
+    assert [chunk.page_content for chunk in kept] == ["5. Conclusion\n\nResidual nets work."]
+    assert [chunk.metadata["page_count"] for chunk in kept] == [9]
+    assert [chunk.metadata["section"] for chunk in full] == ["5. Conclusion", "References"]
+    with pytest.raises(ValueError, match="bibliography"):
+        split_into_chunks(
+            pages[1:], title="ResNet", source="x", splitter=splitter, skip_references=True
+        )
+
+
+def test_service_leaves_the_bibliography_out_unless_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_service: ServiceFactory
+) -> None:
+    path = tmp_path / "resnet.pdf"
+    path.write_bytes(make_pdf([["unused"]]))
+
+    def fake_docling(pdf: Path, source: str) -> list[Document]:
+        blocks = [
+            Block(1, "Residual learning eases training."),
+            Block(2, "References", heading=True),
+            Block(2, "[16] S. Ioffe and C. Szegedy. Batch normalization."),
+        ]
+        return pages_from_blocks(blocks, source)
+
+    monkeypatch.setattr(docling_parser, "load_pdf_with_docling", fake_docling)
+    default = make_service(pdf_parser="docling")
+    keeping = make_service(
+        pdf_parser="docling", index_references=True, chroma_dir=tmp_path / "keep"
+    )
+
+    assert default.ingest_file(path) == 1
+    assert keeping.ingest_file(path) == 2
+    assert default.documents()[0].pages == 2
+    assert (default.config().index_references, keeping.config().index_references) == (
+        False,
+        True,
+    )
+
+
+def test_bibliography_setting_comes_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_INDEX_REFERENCES", "true")
+
+    assert Settings.from_environment().index_references is True

@@ -224,7 +224,9 @@ def model_lines(config: ServiceConfig) -> list[str]:
         if config.grader_model:
             lines.append(f"Avaliador (grade): `{config.grader_model}`")
     lines.append(f"Busca: {config.retrieval_mode} · embeddings {config.embedding_backend}")
-    lines.append(f"Leitura de PDF: {config.pdf_parser}")
+    references = "" if config.index_references else " · sem bibliografia no índice"
+    sections = references if config.pdf_parser != "pypdf" else ""
+    lines.append(f"Leitura de PDF: {config.pdf_parser}{sections}")
     return lines
 
 

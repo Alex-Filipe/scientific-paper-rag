@@ -34,6 +34,8 @@ class Settings:
     validate_numbers: bool = True
     pdf_parser: str = "pypdf"
     """`pypdf` (text layer) or `docling` (layout and table models, optional extra)."""
+    index_references: bool = False
+    """Keep the bibliography in the index; only parsers with sections (docling) can drop it."""
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -57,4 +59,5 @@ class Settings:
             grader_model=os.getenv("RAG_GRADER_MODEL", defaults.grader_model),
             validate_numbers=_env_bool("RAG_VALIDATE_NUMBERS", defaults.validate_numbers),
             pdf_parser=os.getenv("RAG_PDF_PARSER", defaults.pdf_parser),
+            index_references=_env_bool("RAG_INDEX_REFERENCES", defaults.index_references),
         )

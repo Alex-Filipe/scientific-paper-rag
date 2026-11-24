@@ -66,7 +66,11 @@ class RagService:
             grouped.setdefault(str(metadata.get("document_id", "")), []).append(metadata)
         documents = []
         for document_id, chunks in grouped.items():
-            pages = [page for chunk in chunks if isinstance(page := chunk.get("page"), int)]
+            pages = [
+                page
+                for chunk in chunks
+                if isinstance(page := chunk.get("page_count", chunk.get("page")), int)
+            ]
             documents.append(
                 DocumentInfo(
                     document_id=document_id,
@@ -93,6 +97,7 @@ class RagService:
             max_rewrites=settings.max_rewrites,
             validate_numbers=settings.validate_numbers,
             pdf_parser=settings.pdf_parser,
+            index_references=settings.index_references,
         )
 
     def ask(
@@ -165,7 +170,13 @@ class RagService:
         yield {"event": "answer", "data": _to_answer(final_state).to_dict()}
 
     def _ingest(self, pages: list[Document], *, title: str, source: str) -> int:
-        chunks = split_into_chunks(pages, title=title, source=source, splitter=self.splitter)
+        chunks = split_into_chunks(
+            pages,
+            title=title,
+            source=source,
+            splitter=self.splitter,
+            skip_references=not self.settings.index_references,
+        )
         self.search.index.replace_document(str(chunks[0].metadata["document_id"]), chunks)
         return len(chunks)
 

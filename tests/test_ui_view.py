@@ -132,6 +132,12 @@ def test_document_and_model_descriptions() -> None:
     assert view.model_lines(config(generation_backend="extractive", model=None))[0] == (
         "Geração: **extractive** (sem LLM)"
     )
+    assert view.model_lines(config(pdf_parser="docling"))[-1] == (
+        "Leitura de PDF: docling · sem bibliografia no índice"
+    )
+    assert view.model_lines(config(pdf_parser="docling", index_references=True))[-1] == (
+        "Leitura de PDF: docling"
+    )
 
 
 def test_grade_warning_only_when_the_generator_grades() -> None:

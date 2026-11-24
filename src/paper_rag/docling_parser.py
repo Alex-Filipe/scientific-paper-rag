@@ -21,7 +21,6 @@ HEADING_LABELS = frozenset({"title", "section_header"})
 SKIPPED_LABELS = frozenset(
     {"picture", "chart", "page_header", "page_footer", "document_index", "empty_value"}
 )
-REFERENCE_SECTIONS = ("references", "bibliography", "referências", "referencias")
 SNAP_WINDOW = 20
 # Docling drops the hyphen of every word broken across lines, so "34-\nlayer" becomes
 # "34layer"; a number glued to a 4+ letter word is put back as "34-layer".
@@ -45,12 +44,6 @@ class Span:
     page: int
     start: int
     end: int
-
-
-def is_reference_section(section: str) -> bool:
-    """True for the bibliography heading ("References", "7. Bibliography", "Referências")."""
-    words = re.sub(r"^[\d.\s]+", "", section).strip().casefold()
-    return words.startswith(REFERENCE_SECTIONS)
 
 
 def clean_docling_text(text: str) -> str:
