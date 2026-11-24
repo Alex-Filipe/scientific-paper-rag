@@ -6,12 +6,13 @@ tela de chat em **Streamlit** sobre a API. O modo extrativo roda localmente sem 
 externo ou chave de API; a síntese com LLM é opcional.
 
 ```text
-ingestão: documento -> loader -> text splitter -> embeddings -> Chroma
+ingestão: documento -> loader (pypdf ou Docling) -> text splitter -> embeddings -> Chroma
 pergunta: retrieve (BM25 + vetores, RRF) -> grade -> [rewrite -> retrieve] -> generate | abstain
 ```
 
 | Etapa | Tecnologia |
 |---|---|
+| Leitura de PDF | `pypdf` (padrão) ou **Docling** (opcional: layout, seções e tabelas) |
 | Chunking | `langchain-text-splitters` (`RecursiveCharacterTextSplitter`, tamanho em palavras) |
 | Vetores | Chroma local via `langchain-chroma` |
 | Busca | Híbrida: BM25+ e vetores fundidos por Reciprocal Rank Fusion |
@@ -43,10 +44,10 @@ API interativa: `http://127.0.0.1:8000/docs`.
 | Endpoint | Função |
 |---|---|
 | `GET /documents` | Lista os documentos indexados: título, origem, nº de trechos e de páginas |
-| `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, `top_k` e chaves padrão |
+| `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, leitura de PDF, `top_k` e chaves padrão |
 | `POST /documents` | Ingere texto (`title`, `text`, `source`) |
 | `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md`; reenviar o mesmo nome substitui a versão anterior |
-| `POST /questions` | Resposta estruturada: texto, status, citações (página, trecho inteiro em `text` e início em `excerpt`) e passos do grafo |
+| `POST /questions` | Resposta estruturada: texto, status, citações (página, seção, trecho inteiro em `text` e início em `excerpt`) e passos do grafo |
 | `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` (o `answer` final prevalece sobre os tokens) |
 
 As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opcionais
@@ -76,6 +77,33 @@ A tela abre em `http://localhost:8501`. `--api-url` aponta para outra API e `--h
 navegador. As chaves da tela valem por pergunta; o modelo e o avaliador (`RAG_GRADER_MODEL`) são
 escolhidos ao subir a API. Detalhes em
 [`docs/architecture.md`](docs/architecture.md#tela-streamlit).
+
+## Leitura de PDF com Docling (opcional)
+
+O padrão lê a camada de texto de cada página com `pypdf`: é leve e rápido, mas deixa marcas da
+diagramação (`T able`, `W e`, nomes de glifos, números dos eixos das figuras). O
+[Docling](https://github.com/docling-project/docling) usa modelos de layout e de tabela e devolve
+o texto limpo, com a seção de cada trecho:
+
+```bash
+python -m pip install -e ".[docling]"
+RAG_PDF_PARSER=docling paper-rag ingest data/artigo.pdf
+RAG_PDF_PARSER=docling RAG_GENERATION_BACKEND=ollama paper-rag serve
+```
+
+- As citações e a tela mostram a seção (`p. 6 · 4.1. ImageNet Classification`), e a página
+  continua exata: o trecho nunca cruza páginas.
+- As tabelas viram uma linha por linha (`ResNet-152 19.38 4.49`), o formato que o `validate` usa.
+- A bibliografia fica fora do índice e não ocupa vagas do top-k; `RAG_INDEX_REFERENCES=true` a
+  mantém. Com `pypdf` não há seções, então ela continua indexada.
+- Custo: o extra instala o PyTorch (cerca de 2 GB no ambiente), a primeira conversão baixa cerca
+  de 500 MB de modelos do Hugging Face e um artigo de 9 páginas leva ~10 s, contra 0,2 s do
+  `pypdf`. Não usa OCR: serve para PDFs com texto, como os de artigos.
+
+No artigo do ResNet, a busca ficou empatada com o `pypdf`. Na geração com o
+`qwen2.5:1.5b-instruct`, das 23 respostas (de 52) que mudaram, 15 melhoraram e 7 pioraram, e o
+prompt ficou 17% menor. A comparação completa está em
+[`docs/architecture.md`](docs/architecture.md#leitura-de-pdf-docling).
 
 ## Embeddings semânticos
 

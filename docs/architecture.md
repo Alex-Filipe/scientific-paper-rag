@@ -7,7 +7,7 @@ Monólito modular em Python. O pipeline usa os pacotes mantidos do ecossistema L
 `langchain-openai`) e orquestra a pergunta com um grafo **LangGraph**.
 
 ```text
-ingestão:  arquivo -> PaperLoader -> RecursiveCharacterTextSplitter -> embeddings -> Chroma
+ingestão:  arquivo -> PaperLoader (pypdf | Docling) -> RecursiveCharacterTextSplitter -> embeddings -> Chroma
 pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate -> validate | abstain)
 ```
 
@@ -18,7 +18,8 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 
 | Módulo | Responsabilidade |
 |---|---|
-| `documents.py` | `PaperLoader` (PDF por página com `pypdf` e limpeza de ligaduras/hifenização, TXT/MD) e chunking por palavras |
+| `documents.py` | `PaperLoader` (PDF por página com `pypdf` ou Docling, TXT/MD), limpeza de ligaduras/hifenização e chunking por palavras, com a seção de cada trecho e a bibliografia fora |
+| `docling_parser.py` | Leitura com Docling (extra `docling`): itens em ordem de leitura → uma página por documento, com os inícios de seção, tabelas linha a linha e itens cortados na troca de página |
 | `embeddings.py` | `HashingEmbeddings` (baseline sem download) e `FastEmbedEmbeddings` (semântico, CPU) |
 | `vectorstore.py` | `ChunkIndex`: coleção Chroma persistente por espaço de embeddings |
 | `retrieval.py` | `BM25Retriever`, `RRFRetriever` e `HybridSearch` (BM25 + vetores via RRF) |
@@ -98,6 +99,13 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
 11. **Validação como nó próprio:** a validação saiu de dentro do `generate` e virou o nó
     `validate`, com uma checagem a mais: números sem suporte nos trechos citados, e a correção da
     citação quando o número está na linha certa de outro trecho. São regras lexicais, sem LLM.
+12. **Docling opcional, `pypdf` como padrão:** o Docling limpa o texto e dá as seções, mas
+    instala o PyTorch, baixa modelos e leva ~10 s por artigo; na busca empatou com o `pypdf`. O CI
+    não instala o extra: a lógica de páginas e seções é testada com itens falsos do Docling, e a
+    conversão real é um teste opcional (`PAPER_RAG_DOCLING_TESTS=1`).
+13. **Bibliografia fora do índice (com seções):** as referências não respondem perguntas sobre o
+    conteúdo e tiravam vagas do top-k. Só o Docling sabe onde ela começa; `RAG_INDEX_REFERENCES`
+    a mantém.
 
 ## Teste com artigo real
 
@@ -107,7 +115,8 @@ ResNet (He et al., CVPR 2016, 9 páginas em duas colunas), `qwen2.5:1.5b-instruc
 - **Extração (`pypdf`):** a ordem das colunas sai correta e as tabelas viram linhas legíveis
   (`ResNet-152 19.38 4.49`). Ligaduras (`ﬁ`) e hifenização de fim de linha agora são limpas. Ainda
   ficam espaços espúrios (`W e`, `T able`, `CIF AR-10`), números dos eixos das figuras e expoentes
-  perdidos (`1.8×109`); isso fica para o parser da etapa 4.
+  perdidos (`1.8×109`); o parser opcional com Docling resolve os dois primeiros
+  ([Leitura de PDF](#leitura-de-pdf-docling)).
 - **Páginas citadas:** corretas (conferidas com `pdftotext`), porque os chunks nunca cruzam páginas.
 - **Latência:** 2,5 a 5,1 s por pergunta na CLI (média 4,0 s, MacBook M4), incluindo até 9
   chamadas ao LLM quando há reescrita.
@@ -283,6 +292,96 @@ começo do trecho; com o trecho inteiro, a linha `34 layers 28.54 25.03` da Tabe
 número grifado. Na pergunta sobre o top-5 do ResNet-152 com modelo único, o 5,71% grifado em três
 linhas mostra que a resposta veio da Tabela 3 (10-crop), não da linha de modelo único.
 
+## Leitura de PDF (Docling)
+
+`RAG_PDF_PARSER=docling` (extra `docling`, Docling 2.151) lê o PDF com o modelo de layout e o
+TableFormer, sem OCR. `docling_parser.py` percorre os itens do `DoclingDocument` na ordem de
+leitura:
+
+- **Ignorados:** figuras (e o texto de dentro delas, como os números dos eixos), cabeçalhos e
+  rodapés de página.
+- **Mantidos:** parágrafos, títulos de seção, legendas, notas de rodapé, fórmulas (o texto do PDF,
+  já que o reconhecimento de fórmulas fica desligado) e itens de lista com o marcador, para que a
+  bibliografia continue `[16] S. Ioffe…`.
+- **Tabelas:** uma linha por linha da tabela, com as células separadas por espaço e sem as
+  repetições de células mescladas (`Maxout [9] 9.38`). É o formato que o `validate` usa para
+  corrigir citações (`34 layers 28.54 25.03`).
+- **Página exata:** o Docling junta num item só o parágrafo que continua na outra coluna ou na
+  página seguinte. As partes são separadas na troca de página pelos `charspan` da proveniência.
+  Esses deslocamentos ignoram o hífen de quebra de linha que o Docling remove, então o corte vai
+  para o espaço mais próximo.
+- **Hífens:** o Docling tira o hífen de toda palavra quebrada no fim da linha (`34layer`,
+  `highlevel`). Um número colado numa palavra de 4 ou mais letras volta a ter hífen (`34-layer`);
+  as palavras ficam como estão.
+- **Seções:** cada página vira um documento com a lista de onde cada seção começa. O splitter
+  corta a página como faz com o `pypdf`, e cada trecho recebe a seção que ocupa a maior parte dele.
+  Um documento por seção foi testado e descartado: picava os trechos (alguns com 2 palavras) e o
+  gabarito no top-10 com semantic caiu de 21 para 17.
+- **Bibliografia:** a seção de referências (`References`, `Bibliography`, `Referências`) sai do
+  texto antes do corte, salvo com `RAG_INDEX_REFERENCES=true`. Cada trecho guarda `page_count`,
+  então o ResNet continua listado com 9 páginas, embora a 9 só tenha referências.
+
+**Comparação no ResNet** (sem LLM, script avulso fora do repositório, MacBook M4). Os gates de
+busca do CI usam textos sintéticos, não PDF, e não mudam.
+
+| Texto | `pypdf` | Docling |
+|---|---|---|
+| Tempo de leitura | 0,2 s | 10 a 14 s (inclui carregar os modelos) |
+| Palavras / trechos | 7.322 / 42 | 6.570 / 34 |
+| Espaços espúrios (`T able`, `W e`, `Y . Bengio`, `CIF AR-10`) | 161 | 0 |
+| Nomes de glifos (`rel/uni0075`) | 12 | 0 |
+| Linhas só de números (eixos das figuras) | 9 | 0 |
+| Expoentes perdidos (`1.8×109`) | 6 | 6 |
+| Trechos de bibliografia | 6 | 0 |
+| Citações do dataset de geração encontradas | 36 de 36 | 36 de 36 |
+
+| Busca (21 perguntas com resposta) | `pypdf` | Docling |
+|---|---|---|
+| Gabarito no top-4, hashing / semantic | 17 / 17 | 17 / 18 |
+| MRR no top-4, hashing / semantic | 0,58 / 0,64 | 0,56 / 0,58 |
+| Gabarito no top-10, hashing / semantic | 19 / 21 | 19 / 20 |
+| Vagas do top-4 com bibliografia (de 104), hashing / semantic | 7 / 1 | 0 / 0 |
+
+Sem tirar a bibliografia, o Docling ficava com 16 / 18 no top-4. As diferenças são de 1 pergunta
+em 21 e mudam de lado conforme o backend, então a busca empatou; o ganho está no texto que o
+modelo e a tela recebem e nas seções.
+
+**Geração** (`paper-rag evaluate-generation`, fluxo linear, `qwen2.5:1.5b-instruct`, cache do
+Ollama limpo, uma rodada, 26 perguntas; `.data/evaluation/parser-*.jsonl`). Vereditos lexicais,
+com revisão manual só das 23 respostas (de 52) que mudaram de um parser para o outro; três delas
+foram corrigidas (por exemplo, "gatilhos" é uma resposta certa para "gates").
+
+| | `pypdf` hashing | Docling hashing | `pypdf` semantic | Docling semantic |
+|---|---|---|---|---|
+| Corretas / parciais (de 21) | 11 / 0 | 13 / 0 | 8 / 1 | 12 / 2 |
+| Erradas com citação válida | 8 | 6 | 8 | 7 |
+| `fallback` | 2 | 2 | 4 | 0 |
+| Sem resposta: abstém ou `fallback` / inventa (de 5) | 1 / 4 | 3 / 2 | 1 / 4 | 1 / 4 |
+| Citou um trecho-gabarito | 12 | 12 | 9 | 12 |
+| Tokens de entrada por pergunta | 1.724 | 1.441 | 1.790 | 1.458 |
+| Latência média | 2,7 s | 3,0 s | 3,4 s | 3,2 s |
+
+Nas 23 respostas que mudaram, 15 melhoraram com o Docling, 7 pioraram e 1 ficou igual. Os
+ganhos vieram sobretudo de perguntas diretas e de tabela (o 27,2 de mAP do COCO e os 11,3 bilhões
+de FLOPs passaram a sair certos) e de duas invenções nas perguntas sem resposta que viraram
+abstenção ou `fallback`. As perdas foram respostas que estavam certas e passaram a pegar a linha
+errada (`7.93%` no lugar de `28.54%`), uma resposta "não venceu nenhuma competição" e um BLEU
+inventado. O prompt ficou 17% menor, porque o texto não carrega mais eixos, rodapés e
+bibliografia. Com o cache limpo, a mesma entrada dá a mesma resposta (etapa 2), então as
+diferenças vêm do texto e dos trechos, não de amostragem. Mesmo assim, pequenas mudanças no texto
+fazem o modelo de 1,5B trocar respostas nos dois sentidos, e com 26 perguntas de um artigo só o
+saldo de +8 é indicativo, não conclusivo. Os números absolutos não são comparáveis com os da
+[avaliação da geração](#avaliação-da-geração), que teve todas as respostas revisadas à mão.
+
+**Limitações que ficam:**
+
+- Na página 1 do ResNet, o Docling põe a coluna da direita (Figura 1 e o fim da introdução) antes
+  do Abstract. A página continua certa, mas um trecho mistura as duas colunas.
+- Os expoentes continuam perdidos (`1.8×109`), e a Tabela 1 (arquitetura, com colchetes) continua
+  ilegível com os dois parsers.
+- Palavras com hífen quebradas no fim da linha perdem o hífen (`highlevel`).
+- Rótulos de figura às vezes grudam em parágrafos vizinhos (`iter. (1e4)`).
+
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
 Mesmos datasets, `top_k=3`:
@@ -300,6 +399,7 @@ medir qualidade em artigos reais.
 
 ## Próximas melhorias planejadas
 
-1. Parser que preserve a estrutura de artigos (duas colunas, seções), por exemplo Docling.
-2. Reranker entre a busca e o grafo.
-3. Observabilidade de latência, erros e tokens por consulta.
+1. Reranker entre a busca e o grafo.
+2. Observabilidade de latência, erros e tokens por consulta.
+3. Leitura de PDF: ordem da primeira página e expoentes com o Docling (ver
+   [limitações](#leitura-de-pdf-docling)).
