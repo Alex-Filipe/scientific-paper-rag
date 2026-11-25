@@ -25,8 +25,10 @@ from paper_rag.generation import (
     GRADE_PROMPT,
     REWRITE_PROMPT,
     GenerationBackend,
+    answer_instructions,
     answer_prompt_for,
     cited_indexes,
+    echoes_instructions,
     extractive_answer,
     format_evidence,
     is_abstention,
@@ -178,9 +180,14 @@ class RagNodes:
         """Keep the draft only if its citations exist and its numbers come from what it cites.
 
         A draft citing one chunk whose numbers sit in another retrieved chunk's matching line is
-        re-cited to that chunk instead of falling back.
+        re-cited to that chunk instead of falling back. A draft that repeats the prompt's
+        instructions falls back even when it carries a valid `[1]`.
         """
         draft, contexts = state["draft"], state["contexts"]
+        if echoes_instructions(draft, answer_instructions(self.backend)):
+            return _fallback(
+                contexts, "A resposta repete as instruções do prompt; mostrando evidências."
+            )
         cited = cited_indexes(draft, len(contexts))
         if cited is None:
             return _fallback(contexts, "Citações ausentes ou inválidas; mostrando evidências.")

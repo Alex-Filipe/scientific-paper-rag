@@ -25,34 +25,36 @@ class GenerationBackend(StrEnum):
     OLLAMA = "ollama"
 
 
+DETAILED_INSTRUCTIONS = (
+    "Responda no mesmo idioma da pergunta, de forma direta, usando somente as "
+    f"evidências fornecidas. {UNTRUSTED_EVIDENCE} Cite cada afirmação factual usando "
+    "os rótulos disponíveis, por exemplo [1]. Não invente fontes nem use rótulos "
+    f"inexistentes. Se as evidências forem insuficientes, responda exatamente: "
+    f"{ABSTENTION_ANSWER}"
+)
 DETAILED_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "Responda no mesmo idioma da pergunta, de forma direta, usando somente as "
-            f"evidências fornecidas. {UNTRUSTED_EVIDENCE} Cite cada afirmação factual usando "
-            "os rótulos disponíveis, por exemplo [1]. Não invente fontes nem use rótulos "
-            f"inexistentes. Se as evidências forem insuficientes, responda exatamente: "
-            f"{ABSTENTION_ANSWER}",
-        ),
+        ("system", DETAILED_INSTRUCTIONS),
         ("human", "Pergunta:\n{question}\n\nEvidências:\n{evidence}"),
     ]
 )
 
 # Small local models follow a short, example-driven instruction more reliably.
+CONCISE_INSTRUCTIONS = (
+    "Responda no idioma da pergunta, em uma frase curta, usando somente os fatos das "
+    f"evidências. {UNTRUSTED_EVIDENCE} Termine a resposta com uma citação literal, como "
+    "[1], usando um número presente nas evidências. Exemplo: evidência [1]: RAG combina "
+    "recuperação e geração. Resposta: RAG combina recuperação e geração [1]. Não invente "
+    f"fontes. Se faltar evidência, responda exatamente: {ABSTENTION_ANSWER}"
+)
 CONCISE_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "Responda no idioma da pergunta, em uma frase curta, usando somente os fatos das "
-            f"evidências. {UNTRUSTED_EVIDENCE} Termine a resposta com uma citação literal, como "
-            "[1], usando um número presente nas evidências. Exemplo: evidência [1]: RAG combina "
-            "recuperação e geração. Resposta: RAG combina recuperação e geração [1]. Não invente "
-            f"fontes. Se faltar evidência, responda exatamente: {ABSTENTION_ANSWER}",
-        ),
+        ("system", CONCISE_INSTRUCTIONS),
         ("human", "Pergunta:\n{question}\n\nEvidências:\n{evidence}"),
     ]
 )
+ECHO_WORDS = 8
+"""Consecutive words shared with the instructions that make an answer an echo of the prompt."""
 
 # One yes/no call per chunk: small models (qwen2.5:1.5b) do not reliably list chunk numbers,
 # and scientific papers are full of their own bracketed references such as [40].
@@ -85,6 +87,35 @@ REWRITE_PROMPT = ChatPromptTemplate.from_messages(
 
 def answer_prompt_for(backend: GenerationBackend) -> ChatPromptTemplate:
     return CONCISE_ANSWER_PROMPT if backend is GenerationBackend.OLLAMA else DETAILED_ANSWER_PROMPT
+
+
+def answer_instructions(backend: GenerationBackend) -> str:
+    return CONCISE_INSTRUCTIONS if backend is GenerationBackend.OLLAMA else DETAILED_INSTRUCTIONS
+
+
+def echoes_instructions(text: str, instructions: str, span: int = ECHO_WORDS) -> bool:
+    """True when the answer copies `span` consecutive words of the prompt's instructions.
+
+    qwen2.5:1.5b sometimes returns its own instructions, which pass the citation check because
+    they contain `[1]`. The abstention sentence is left out: echoing it is an abstention, not
+    an echo, and the example answer is shorter than `span`.
+    """
+    instruction_words = _plain_words(instructions.replace(ABSTENTION_ANSWER, " "))
+    shingles = {
+        tuple(instruction_words[start : start + span])
+        for start in range(len(instruction_words) - span + 1)
+    }
+    words = _plain_words(text)
+    return any(
+        tuple(words[start : start + span]) in shingles for start in range(len(words) - span + 1)
+    )
+
+
+def _plain_words(text: str) -> list[str]:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return re.findall(
+        r"\w+", "".join(char for char in decomposed if not unicodedata.combining(char))
+    )
 
 
 def format_evidence(contexts: Sequence[Document], max_chars: int = 4_000) -> str:

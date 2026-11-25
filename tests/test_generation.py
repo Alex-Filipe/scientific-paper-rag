@@ -5,11 +5,16 @@ from langchain_ollama import ChatOllama
 from paper_rag.generation import (
     ABSTENTION_ANSWER,
     CONCISE_ANSWER_PROMPT,
+    CONCISE_INSTRUCTIONS,
     DETAILED_ANSWER_PROMPT,
+    DETAILED_INSTRUCTIONS,
     GRADE_PROMPT,
+    GenerationBackend,
+    answer_instructions,
     cited_indexes,
     create_chat_model,
     create_grader_model,
+    echoes_instructions,
     extractive_answer,
     format_evidence,
     is_abstention,
@@ -190,3 +195,24 @@ def test_recitation_needs_the_number_on_a_line_matching_the_question() -> None:
     coco = "COCO mAP of ResNet-101?"
     assert recitation_target("It is 73.8% [1].", coco, [other, "x 73.8"]) is None
     assert recitation_target("No numbers here [1].", question, [other, table]) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (CONCISE_INSTRUCTIONS, True),
+        ("Termine a resposta com uma citação literal, como [1], usando um número [1].", True),
+        ("RESPONDA NO IDIOMA DA PERGUNTA, EM UMA FRASE CURTA, usando somente…", True),
+        ("RAG combina recuperação e geração [1].", False),  # the prompt's own example answer
+        (f"Evidências [1]: {ABSTENTION_ANSWER}", False),  # an abstention, not an echo
+        ("The mini-batch size used to train the ImageNet models was 256 [1].", False),
+    ],
+)
+def test_echoes_instructions(text: str, expected: bool) -> None:
+    assert echoes_instructions(text, CONCISE_INSTRUCTIONS) is expected
+
+
+def test_each_backend_checks_its_own_instructions() -> None:
+    assert answer_instructions(GenerationBackend.OLLAMA) == CONCISE_INSTRUCTIONS
+    assert answer_instructions(GenerationBackend.OPENAI) == DETAILED_INSTRUCTIONS
+    assert echoes_instructions(DETAILED_INSTRUCTIONS, DETAILED_INSTRUCTIONS)

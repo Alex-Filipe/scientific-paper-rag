@@ -131,8 +131,9 @@ tempo e proíbe uso comercial. A comparação está em
 [`docs/architecture.md`](docs/architecture.md#reranker-cross-encoder).
 
 Na geração com o `qwen2.5:1.5b-instruct`, a resposta passou a citar o trecho certo em 57 de 84
-casos, contra 45. Das 79 respostas (de 104) que mudaram, 22 melhoraram e 15 pioraram; boa parte
-das perdas é o modelo pequeno lendo a coluna errada da tabela mesmo com o trecho certo.
+casos, contra 45. Das 79 respostas (de 104) que mudaram, 23 melhoraram e 14 pioraram (já com a
+checagem de eco do `validate`); boa parte das perdas é o modelo pequeno lendo a coluna errada da
+tabela mesmo com o trecho certo.
 
 ## Embeddings semânticos
 
@@ -177,7 +178,8 @@ As respostas devem citar os trechos como `[1]`, `[2]` etc. O nó `validate` conf
 os números. Se uma citação não existir, ou se um número da resposta não estiver na pergunta nem
 nos trechos citados, o sistema mostra as evidências em vez da síntese. A exceção é quando o
 número está na linha certa de outro trecho recuperado: aí a citação é corrigida para esse trecho
-(`RAG_VALIDATE_NUMBERS=false` desliga a checagem de números).
+(`RAG_VALIDATE_NUMBERS=false` desliga a checagem de números). Uma resposta que repete as
+instruções do prompt, o que o modelo de 1,5B às vezes faz, também é trocada pelas evidências.
 
 Por padrão o fluxo é linear (busca → geração, uma chamada ao LLM). Os nós corretivos são
 opcionais: `RAG_GRADE_DOCUMENTS=true` avalia cada trecho recuperado e `RAG_MAX_REWRITES=1`

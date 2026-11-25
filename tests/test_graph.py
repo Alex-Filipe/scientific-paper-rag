@@ -258,3 +258,16 @@ def test_question_options_override_node_defaults(service: RagService) -> None:
 
     assert answer.status is AnswerStatus.ANSWERED
     assert answer.steps[1].detail == "1 de 1 trecho(s) úteis."
+
+
+def test_echoed_instructions_fall_back_despite_a_valid_citation(
+    service: RagService, with_fake_llm: InstallLLM
+) -> None:
+    from paper_rag.generation import CONCISE_INSTRUCTIONS
+
+    with_fake_llm(service, ["sim", CONCISE_INSTRUCTIONS])
+
+    answer = service.ask("O que é RAG?")
+
+    assert answer.status is AnswerStatus.FALLBACK
+    assert answer.steps[-1].detail.startswith("A resposta repete as instruções do prompt")

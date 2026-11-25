@@ -57,7 +57,9 @@ START -> retrieve -> [rerank] -> grade --(há trechos úteis)--> generate --(res
   mantida.
 - **generate:** sem LLM, lista as evidências (`extractive`). Com LLM, gera um rascunho; se o
   modelo se abstiver, termina aí.
-- **validate:** aceita o rascunho só se as citações `[n]` existirem e se todo número da resposta
+- **validate:** recusa o rascunho que repete as instruções do prompt (8 palavras seguidas, sem
+  contar a frase de abstenção), que o 1,5B às vezes devolve com o `[1]` do exemplo. Depois, aceita
+  o rascunho só se as citações `[n]` existirem e se todo número da resposta
   aparecer na pergunta ou nos trechos citados (`RAG_VALIDATE_NUMBERS`, padrão `true`). A
   comparação aceita formatos diferentes (`4,49`/`4.49`, `50.000`/`50k`, `1,7 milhão`/`1.7M`) e
   ignora as referências do artigo (`[10, 41]`). Se a resposta cita um único trecho e os números
@@ -105,6 +107,8 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
 11. **Validação como nó próprio:** a validação saiu de dentro do `generate` e virou o nó
     `validate`, com uma checagem a mais: números sem suporte nos trechos citados, e a correção da
     citação quando o número está na linha certa de outro trecho. São regras lexicais, sem LLM.
+    Com o reranker apareceu um terceiro caso, o modelo devolvendo as próprias instruções com o
+    `[1]` do exemplo; o `validate` também o recusa.
 12. **Docling opcional, `pypdf` como padrão:** o Docling limpa o texto e dá as seções, mas
     instala o PyTorch, baixa modelos e leva ~10 s por artigo; na busca empatou com o `pypdf`. O CI
     não instala o extra: a lógica de páginas e seções é testada com itens falsos do Docling, e a
@@ -475,7 +479,7 @@ lexicais, antes → depois:
 
 Como a ordem dos trechos no prompt muda, 79 das 104 respostas mudaram de texto. Revisei todas à
 mão: **22 melhoraram, 15 pioraram e 42 ficaram equivalentes** (5 / 6, 6 / 3, 4 / 3 e 7 / 3 nas
-quatro colunas, na mesma ordem). Os vereditos lexicais erram em alguns casos, nos dois sentidos:
+quatro colunas, na mesma ordem); com a checagem de eco descrita abaixo, 23, 14 e 42. Os vereditos lexicais erram em alguns casos, nos dois sentidos:
 "atalhos com gatilhos" é a resposta certa sobre as highway networks, e "Evidências [1]: Não
 encontrei evidências…" é uma abstenção, embora tenha passado pelo `validate` como resposta.
 
@@ -489,7 +493,12 @@ encontrei evidências…" é uma abstenção, embora tenha passado pelo `validat
   7,40%; duas perguntas sem resposta que davam `fallback` passaram a inventar um número.
 - **Repetição do prompt:** em 3 respostas com `pypdf` o modelo devolveu as próprias instruções
   ("Responda no idioma da pergunta…"), e o `validate` as aceitou, porque elas contêm `[1]`. Isso
-  não tinha acontecido em nenhuma rodada anterior.
+  não tinha acontecido em nenhuma rodada anterior. O `validate` passou a recusar a resposta que
+  repete 8 palavras seguidas das instruções. Nas 1.006 respostas gravadas até aqui, a regra pega
+  só essas 3 (e nenhuma outra mesmo com 4 palavras). Aplicada às mesmas respostas, as 3 viram
+  `fallback`: com `pypdf`, as erradas ficam em 8 (hashing) e 7 (semantic), e os `fallback`, em 3
+  e 3. Uma variante continua passando: "Evidências [1]: Não encontrei evidências…" (2 vezes com
+  Docling) é uma abstenção que o `validate` aceita como resposta.
 - **Custo:** cerca de 1 s a mais por pergunta (de 0,8 a 1,4 s), ou 30 a 45%.
 
 O reranker melhora o que o gerador recebe: o trecho-gabarito vai para o top-4 em 78 de 84 casos
@@ -520,5 +529,3 @@ medir qualidade em artigos reais.
    [limitações](#leitura-de-pdf-docling)).
 3. Reranker: medir a versão quantizada do mmarco (119 MB, só ARM) e, com um dataset maior,
    ajustar um reranker para artigos científicos.
-4. `validate`: recusar a resposta que repete as instruções do prompt (visto 3 vezes com o
-   reranker; hoje passa porque as instruções contêm `[1]`).
