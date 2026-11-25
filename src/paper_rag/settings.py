@@ -36,6 +36,9 @@ class Settings:
     """`pypdf` (text layer) or `docling` (layout and table models, optional extra)."""
     index_references: bool = False
     """Keep the bibliography in the index; only parsers with sections (docling) can drop it."""
+    rerank: bool = False
+    """Reorder the `candidate_k` fused candidates with a cross-encoder before the cut at top_k."""
+    rerank_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -60,4 +63,6 @@ class Settings:
             validate_numbers=_env_bool("RAG_VALIDATE_NUMBERS", defaults.validate_numbers),
             pdf_parser=os.getenv("RAG_PDF_PARSER", defaults.pdf_parser),
             index_references=_env_bool("RAG_INDEX_REFERENCES", defaults.index_references),
+            rerank=_env_bool("RAG_RERANK", defaults.rerank),
+            rerank_model=os.getenv("RAG_RERANK_MODEL", defaults.rerank_model),
         )

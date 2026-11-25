@@ -1,12 +1,13 @@
 """Corrective RAG flow as a LangGraph state machine.
 
-    retrieve -> grade -> generate -> validate -> END
-                  |         \\-> END (extractive answer or model abstention)
-                  |  \\-> abstain -> END
-                  \\-> rewrite -> retrieve   (at most `max_rewrites` times)
+    retrieve -> [rerank] -> grade -> generate -> validate -> END
+                              |         \\-> END (extractive answer or model abstention)
+                              |  \\-> abstain -> END
+                              \\-> rewrite -> retrieve   (at most `max_rewrites` times)
 
 Without an LLM (extractive backend) grading and rewriting are skipped, so the flow is
 retrieve -> generate (extractive) or retrieve -> abstain. Grade and rewrite are off by default.
+The rerank node exists only when a reranker is configured (off by default).
 """
 
 import operator
@@ -35,6 +36,7 @@ from paper_rag.generation import (
     unsupported_numbers,
 )
 from paper_rag.models import AnswerStatus, Step
+from paper_rag.rerank import Reranker
 from paper_rag.retrieval import HybridSearch
 
 
@@ -67,6 +69,8 @@ class RagNodes:
     """Model for grade and rewrite; None uses `llm`."""
     validate_numbers: bool = True
     """Reject answers whose numbers are not in the question or the cited chunks."""
+    reranker: Reranker | None = None
+    """Cross-encoder that reorders the search candidates; None skips the rerank node."""
 
     @property
     def judge(self) -> BaseChatModel:
@@ -75,11 +79,27 @@ class RagNodes:
 
     def retrieve(self, state: RagState) -> dict[str, Any]:
         query = state["search_query"]
-        contexts = self.search.search(query, state["top_k"])
-        return {
-            "contexts": contexts,
-            "steps": [Step("retrieve", f"Busca por “{query}”: {len(contexts)} trecho(s).")],
-        }
+        if self.reranker is None:
+            contexts = self.search.search(query, state["top_k"])
+            detail = f"Busca por “{query}”: {len(contexts)} trecho(s)."
+        else:
+            contexts = self.search.search(query, max(self.search.candidate_k, state["top_k"]))
+            detail = f"Busca por “{query}”: {len(contexts)} candidato(s) para reordenar."
+        return {"contexts": contexts, "steps": [Step("retrieve", detail)]}
+
+    def rerank(self, state: RagState) -> dict[str, Any]:
+        """Keep the `top_k` candidates the cross-encoder scores highest for the question."""
+        assert self.reranker is not None
+        candidates = state["contexts"]
+        if not candidates:
+            return {"steps": [Step("rerank", "Nenhum candidato para reordenar.")]}
+        contexts = self.reranker.rerank(state["question"], candidates, state["top_k"])
+        origins = ", ".join(str(context.metadata["search_rank"]) for context in contexts)
+        detail = (
+            f"{len(candidates)} candidato(s) reordenados; ficaram {len(contexts)}, "
+            f"que estavam nas posições {origins} da busca."
+        )
+        return {"contexts": contexts, "steps": [Step("rerank", detail)]}
 
     def grade(self, state: RagState) -> dict[str, Any]:
         contexts = state["contexts"]
@@ -219,6 +239,8 @@ def _fallback(contexts: list[Document], detail: str) -> dict[str, Any]:
 def build_graph(nodes: RagNodes) -> CompiledStateGraph[RagState, None, RagState, RagState]:
     graph = StateGraph(RagState)
     graph.add_node("retrieve", nodes.retrieve)
+    if nodes.reranker is not None:
+        graph.add_node("rerank", nodes.rerank)
     graph.add_node("grade", nodes.grade)
     graph.add_node("rewrite", nodes.rewrite)
     graph.add_node("generate", nodes.generate)
@@ -226,7 +248,11 @@ def build_graph(nodes: RagNodes) -> CompiledStateGraph[RagState, None, RagState,
     graph.add_node("abstain", nodes.abstain)
 
     graph.add_edge(START, "retrieve")
-    graph.add_edge("retrieve", "grade")
+    if nodes.reranker is not None:
+        graph.add_edge("retrieve", "rerank")
+        graph.add_edge("rerank", "grade")
+    else:
+        graph.add_edge("retrieve", "grade")
     graph.add_conditional_edges("grade", nodes.route_after_grade)
     graph.add_edge("rewrite", "retrieve")
     graph.add_conditional_edges(

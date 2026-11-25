@@ -220,8 +220,7 @@ class GenerationEvaluator:
         facts_matched = matched_fact_groups(answer.text, case.facts)
         verdict = verdict_for(answer.status, facts_matched, len(case.facts))
         cited = tuple(citation.index for citation in answer.citations if citation.cited)
-        retrievals = [update for node, update in trace.updates if node == "retrieve"]
-        first_retrieval: list[Document] = retrievals[0].get("contexts", []) if retrievals else []
+        first_retrieval = first_contexts(trace.updates)
         answered = answer.status is AnswerStatus.ANSWERED
         return GenerationRecord(
             model=self.model,
@@ -258,6 +257,7 @@ class GenerationEvaluator:
             output_tokens=usage.output_tokens,
             steps=tuple(f"{step.node}: {step.detail}" for step in answer.steps),
             pdf_parser=self.services[config].settings.pdf_parser,
+            rerank_model=getattr(self.services[config].reranker, "model_name", ""),
         )
 
 
@@ -269,13 +269,26 @@ def is_gold(chunk: Document, case: GenerationCase) -> bool:
     )
 
 
+RETRIEVAL_NODES = ("retrieve", "rerank")
+
+
+def first_contexts(updates: Sequence[tuple[str, dict[str, Any]]]) -> list[Document]:
+    """Chunks of the first retrieval as the next node sees them (after rerank, when it runs)."""
+    contexts: list[Document] = []
+    for node, update in updates:
+        if node not in RETRIEVAL_NODES:
+            break
+        contexts = update.get("contexts", contexts)
+    return contexts
+
+
 def audit_grade(updates: Sequence[tuple[str, dict[str, Any]]], case: GenerationCase) -> GradeAudit:
-    """Compare what each grade step kept with the chunks the preceding retrieve returned."""
+    """Compare what each grade step kept with the chunks the preceding retrieve/rerank returned."""
     counts = Counter[str]()
     retrieved: list[Document] = []
     for node, update in updates:
-        if node == "retrieve":
-            retrieved = update.get("contexts", [])
+        if node in RETRIEVAL_NODES:
+            retrieved = update.get("contexts", retrieved)
         elif node == "grade" and "contexts" in update:  # absent when grading was skipped
             kept = {_chunk_id(chunk) for chunk in update["contexts"]}
             for chunk in retrieved:

@@ -64,6 +64,7 @@ MISSING_CITATIONS = "Citações ausentes"
 
 STEP_TITLES = {
     "retrieve": "Busca",
+    "rerank": "Reordenação",
     "grade": "Avaliação dos trechos",
     "rewrite": "Reescrita da pergunta",
     "generate": "Geração",
@@ -202,6 +203,20 @@ def source_label(citation: Citation) -> str:
     return f"[{citation.index}] {escape_markdown(citation.title)}{page}{section}{cited}"
 
 
+def source_caption(citation: Citation) -> str:
+    """Where the chunk came from and its score, e.g. `posição 1 (7ª na busca) · nota 7,35`."""
+    if citation.search_rank is None or citation.rerank_score is None:
+        return (
+            f"{citation.source} · posição {citation.rank} na busca · "
+            f"RRF {format_score(citation.score)}"
+        )
+    score = f"{citation.rerank_score:.2f}".replace(".", ",")
+    return (
+        f"{citation.source} · posição {citation.rank} após reordenar "
+        f"({citation.search_rank}ª na busca) · nota {score}"
+    )
+
+
 def source_icon(citation: Citation) -> str:
     return ":material/bookmark:" if citation.cited else ":material/description:"
 
@@ -224,6 +239,8 @@ def model_lines(config: ServiceConfig) -> list[str]:
         if config.grader_model:
             lines.append(f"Avaliador (grade): `{config.grader_model}`")
     lines.append(f"Busca: {config.retrieval_mode} · embeddings {config.embedding_backend}")
+    if config.rerank_model:
+        lines.append(f"Reordenação: `{config.rerank_model}` ({config.candidate_k} candidatos)")
     references = "" if config.index_references else " · sem bibliografia no índice"
     sections = references if config.pdf_parser != "pypdf" else ""
     lines.append(f"Leitura de PDF: {config.pdf_parser}{sections}")

@@ -149,10 +149,7 @@ def render_result(turn: view.Turn, slot: DeltaGenerator) -> None:
             icon=view.source_icon(citation),
         ):
             st.markdown(view.source_markdown(citation, highlight))
-            st.caption(
-                f"{citation.source} · posição {citation.rank} na busca · "
-                f"RRF {view.format_score(citation.score)}"
-            )
+            st.caption(view.source_caption(citation))
 
 
 def render_history(turns: list[view.Turn]) -> None:

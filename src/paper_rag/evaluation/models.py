@@ -144,6 +144,8 @@ class GenerationRecord:
     steps: tuple[str, ...]
     pdf_parser: str = "pypdf"
     """PDF parser of the ingested papers (files written before the option used pypdf)."""
+    rerank_model: str = ""
+    """Cross-encoder of the rerank node; empty when reranking was off (and in older files)."""
 
     @property
     def total_llm_calls(self) -> int:

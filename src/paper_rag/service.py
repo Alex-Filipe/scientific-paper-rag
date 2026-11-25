@@ -15,6 +15,7 @@ from paper_rag.embeddings import create_embeddings
 from paper_rag.generation import GenerationBackend, create_chat_model, create_grader_model
 from paper_rag.graph import RagNodes, RagState, build_graph
 from paper_rag.models import Answer, AnswerStatus, Citation, DocumentInfo, ServiceConfig, Step
+from paper_rag.rerank import CrossEncoderReranker, Reranker
 from paper_rag.retrieval import HybridSearch, RetrievalMode
 from paper_rag.settings import Settings
 from paper_rag.vectorstore import ChunkIndex
@@ -43,6 +44,8 @@ class RagService:
     default_top_k: int = 4
     settings: Settings = field(default_factory=Settings)
     """Settings the service was built from; only used to describe it (`config`)."""
+    reranker: Reranker | None = None
+    """Same reranker as the graph's rerank node, so `retrieve` returns what the graph sees."""
 
     def ingest_text(self, title: str, text: str, source: str) -> int:
         return self._ingest([Document(page_content=text)], title=title, source=source)
@@ -57,7 +60,11 @@ class RagService:
         )
 
     def retrieve(self, question: str, top_k: int) -> list[Document]:
-        return self.search.search(question, top_k)
+        """The chunks the graph would hand to `grade`/`generate` (before any rewrite)."""
+        if self.reranker is None:
+            return self.search.search(question, top_k)
+        candidates = self.search.search(question, max(self.search.candidate_k, top_k))
+        return self.reranker.rerank(question, candidates, top_k)
 
     def documents(self) -> list[DocumentInfo]:
         """Indexed documents with their chunk and page counts, sorted by title."""
@@ -98,6 +105,8 @@ class RagService:
             validate_numbers=settings.validate_numbers,
             pdf_parser=settings.pdf_parser,
             index_references=settings.index_references,
+            rerank_model=self.reranker.model_name if self.reranker else None,
+            candidate_k=self.search.candidate_k,
         )
 
     def ask(
@@ -222,6 +231,8 @@ def _to_answer(state: dict[str, Any]) -> Answer:
             cited=index in cited,
             text=context.page_content,
             section=str(context.metadata.get("section", "")),
+            search_rank=_optional_int(context.metadata.get("search_rank")),
+            rerank_score=_optional_float(context.metadata.get("rerank_score")),
         )
         for index, context in enumerate(contexts, start=1)
     )
@@ -239,6 +250,10 @@ def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _optional_float(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
 def build_service(settings: Settings | None = None) -> RagService:
     resolved = settings or Settings.from_environment()
     PdfParser(resolved.pdf_parser)  # fail at startup, not at the first upload
@@ -253,6 +268,11 @@ def build_service(settings: Settings | None = None) -> RagService:
         mode=RetrievalMode(resolved.retrieval_mode),
         candidate_k=resolved.candidate_k,
     )
+    reranker = (
+        CrossEncoderReranker(resolved.rerank_model, resolved.model_cache_dir)
+        if resolved.rerank
+        else None
+    )
     nodes = RagNodes(
         search=search,
         llm=create_chat_model(resolved),
@@ -261,6 +281,7 @@ def build_service(settings: Settings | None = None) -> RagService:
         max_rewrites=resolved.max_rewrites,
         grader=create_grader_model(resolved),
         validate_numbers=resolved.validate_numbers,
+        reranker=reranker,
     )
     return RagService(
         search=search,
@@ -268,4 +289,5 @@ def build_service(settings: Settings | None = None) -> RagService:
         graph=build_graph(nodes),
         default_top_k=resolved.top_k,
         settings=resolved,
+        reranker=reranker,
     )

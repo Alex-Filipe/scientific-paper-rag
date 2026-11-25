@@ -1,4 +1,5 @@
-from collections.abc import Callable, Sequence
+import re
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -7,10 +8,33 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from paper_rag.generation import GenerationBackend
 from paper_rag.graph import RagNodes, build_graph
+from paper_rag.rerank import CrossEncoderReranker
 from paper_rag.service import RagService, build_service
 from paper_rag.settings import Settings
 
 ServiceFactory = Callable[..., RagService]
+WORD = re.compile(r"\w+")
+
+
+class KeywordCrossEncoder:
+    """Fake FastEmbed cross-encoder: one point per question word found in the chunk."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def rerank(self, query: str, documents: Iterable[str]) -> list[float]:
+        texts = list(documents)
+        self.calls.append((query, texts))
+        words = set(WORD.findall(query.casefold()))
+        return [float(len(words & set(WORD.findall(text.casefold())))) for text in texts]
+
+
+def fake_cross_encoder(service: RagService) -> KeywordCrossEncoder:
+    """Give the service's reranker (shared with its graph) a fake model; nothing is downloaded."""
+    assert isinstance(service.reranker, CrossEncoderReranker)
+    fake = KeywordCrossEncoder()
+    service.reranker._model = fake
+    return fake
 
 
 def make_pdf(pages: Sequence[Sequence[str]]) -> bytes:

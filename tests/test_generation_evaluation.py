@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ServiceFactory, make_pdf
+from conftest import ServiceFactory, fake_cross_encoder, make_pdf
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import SimpleChatModel
 from langchain_core.messages import BaseMessage
@@ -381,3 +381,35 @@ def test_cli_runs_and_reprints_report(monkeypatch: MonkeyPatch, tmp_path: Path) 
     reprinted = runner.invoke(cli.app, ["evaluate-generation", "--report", str(results)])
     assert reprinted.exit_code == 0
     assert "| Correct (answerable) | 100% ± 0 (100%–100%) |" in reprinted.stdout
+
+
+def test_reranked_contexts_are_the_first_retrieval(
+    make_service: ServiceFactory, baseline: GenerationDataset
+) -> None:
+    service = make_service(rerank=True)
+    fake_cross_encoder(service)
+    nodes = RagNodes(
+        search=service.search,
+        llm=RoutedChatModel(grade="não"),
+        backend=GenerationBackend.OLLAMA,
+        grade_documents=True,
+        max_rewrites=0,
+        reranker=service.reranker,
+    )
+    evaluator = GenerationEvaluator(
+        services={"grade": replace(service, graph=build_graph(nodes))},
+        model="fake",
+        embedding="hashing",
+        top_k=2,
+    )
+    evaluator.ingest(baseline, BASELINE.parent)
+    assert service.search.index.count() > 2
+
+    record = evaluator.evaluate_case("grade", 1, baseline.cases[0])
+
+    assert record.steps[1].startswith("rerank: ")
+    assert record.grade.graded == 2  # the reranked top-2, not every candidate
+    assert record.rerank_model == service.settings.rerank_model
+    assert f"reranker {record.rerank_model}" in format_report([record])
+    older = {key: value for key, value in record.to_dict().items() if key != "rerank_model"}
+    assert GenerationRecord.from_dict(older).rerank_model == ""

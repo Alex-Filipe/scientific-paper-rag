@@ -23,6 +23,7 @@ class Citation:
     page: int | None
     excerpt: str
     rank: int
+    """Position among the retrieved chunks (after reranking, when the reranker is on)."""
     score: float
     """Reciprocal Rank Fusion score; only meaningful for ordering, not as a probability."""
     cited: bool
@@ -30,6 +31,10 @@ class Citation:
     """The whole chunk; `excerpt` holds only its beginning, which may miss the cited number."""
     section: str = ""
     """Section heading of the chunk (docling parser); empty when the parser has no sections."""
+    search_rank: int | None = None
+    """Position in the hybrid search before reranking; None when the reranker is off."""
+    rerank_score: float | None = None
+    """Cross-encoder score (a logit: higher is more relevant); None when the reranker is off."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,10 @@ class ServiceConfig:
     validate_numbers: bool
     pdf_parser: str = "pypdf"
     index_references: bool = False
+    rerank_model: str | None = None
+    """Cross-encoder of the rerank node; None when reranking is off."""
+    candidate_k: int = 20
+    """Candidates per ranker in the hybrid search; the reranker reorders this many fused ones."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -219,3 +219,20 @@ def test_revive_rebuilds_turns_of_a_reloaded_class() -> None:
     assert isinstance(revived, view.Turn)
     assert revived.citation_fix == FIX
     assert view.revive(current) is current
+
+
+def test_source_caption_shows_where_a_reranked_chunk_came_from() -> None:
+    reranked = Citation(**(asdict(citation()) | {"search_rank": 7, "rerank_score": 7.346}))
+
+    assert view.source_caption(citation()) == "resnet.pdf · posição 1 na busca · RRF 0,0325"
+    assert view.source_caption(reranked) == (
+        "resnet.pdf · posição 1 após reordenar (7ª na busca) · nota 7,35"
+    )
+
+
+def test_model_lines_name_the_reranker() -> None:
+    lines = view.model_lines(config(rerank_model="org/cross-encoder", candidate_k=20))
+
+    assert "Reordenação: `org/cross-encoder` (20 candidatos)" in lines
+    assert not any(line.startswith("Reordenação") for line in view.model_lines(config()))
+    assert view.step_title("rerank") == "Reordenação"
