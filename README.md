@@ -7,7 +7,7 @@ externo ou chave de API; a síntese com LLM é opcional.
 
 ```text
 ingestão: documento -> loader (pypdf ou Docling) -> text splitter -> embeddings -> Chroma
-pergunta: retrieve (BM25 + vetores, RRF) -> grade -> [rewrite -> retrieve] -> generate | abstain
+pergunta: retrieve (BM25 + vetores, RRF) -> [rerank] -> grade -> [rewrite -> retrieve] -> generate | abstain
 ```
 
 | Etapa | Tecnologia |
@@ -16,6 +16,7 @@ pergunta: retrieve (BM25 + vetores, RRF) -> grade -> [rewrite -> retrieve] -> ge
 | Chunking | `langchain-text-splitters` (`RecursiveCharacterTextSplitter`, tamanho em palavras) |
 | Vetores | Chroma local via `langchain-chroma` |
 | Busca | Híbrida: BM25+ e vetores fundidos por Reciprocal Rank Fusion |
+| Reordenação | Cross-encoder multilíngue pré-treinado (FastEmbed, ONNX), opcional |
 | Geração | `ChatOllama` (local) ou `ChatOpenAI` (Responses API), com citações validadas |
 | Orquestração | LangGraph: avalia evidência, reescreve a pergunta e se abstém quando necessário |
 | Entrada | CLI (Typer), API FastAPI com streaming SSE e tela Streamlit |
@@ -44,10 +45,10 @@ API interativa: `http://127.0.0.1:8000/docs`.
 | Endpoint | Função |
 |---|---|
 | `GET /documents` | Lista os documentos indexados: título, origem, nº de trechos e de páginas |
-| `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, leitura de PDF, `top_k` e chaves padrão |
+| `GET /config` | Configuração do serviço (só leitura): backend e modelo, avaliador, embeddings, leitura de PDF, reranker, `top_k` e chaves padrão |
 | `POST /documents` | Ingere texto (`title`, `text`, `source`) |
 | `POST /documents/upload` | Ingere um arquivo `.pdf`, `.txt` ou `.md`; reenviar o mesmo nome substitui a versão anterior |
-| `POST /questions` | Resposta estruturada: texto, status, citações (página, seção, trecho inteiro em `text` e início em `excerpt`) e passos do grafo |
+| `POST /questions` | Resposta estruturada: texto, status, citações (página, seção, trecho inteiro em `text`, início em `excerpt` e, com o reranker, `search_rank` e `rerank_score`) e passos do grafo |
 | `POST /questions/stream` | Mesmo fluxo via Server-Sent Events: `step`, `token` e `answer` (o `answer` final prevalece sobre os tokens) |
 
 As duas rotas de pergunta aceitam, além de `question` e `top_k`, as chaves opcionais
@@ -104,6 +105,34 @@ No artigo do ResNet, a busca ficou empatada com o `pypdf`. Na geração com o
 `qwen2.5:1.5b-instruct`, das 23 respostas (de 52) que mudaram, 15 melhoraram e 7 pioraram, e o
 prompt ficou 17% menor. A comparação completa está em
 [`docs/architecture.md`](docs/architecture.md#leitura-de-pdf-docling).
+
+## Reranker (opcional)
+
+A busca híbrida traz 20 candidatos e um cross-encoder pré-treinado lê cada par (pergunta, trecho)
+para escolher os `top_k` que vão para o modelo. Ele roda em ONNX na CPU pelo FastEmbed, sem
+PyTorch, e o modelo padrão, `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (471 MB, Apache 2.0), é
+multilíngue, então funciona com perguntas em português sobre artigos em inglês:
+
+```bash
+python -m pip install -e ".[rerank]"
+RAG_RERANK=true paper-rag ask "Qual é a taxa de aprendizado inicial no ImageNet?" --show-steps
+RAG_RERANK=true RAG_GENERATION_BACKEND=ollama paper-rag serve
+```
+
+- O reranker vira o passo `rerank` do grafo, que na tela aparece como "Reordenação" e diz de que
+  posição da busca veio cada trecho. `RAG_RERANK_MODEL` troca o modelo.
+- O modelo baixa na primeira pergunta para `.data/models`; cada pergunta leva cerca de 1 s a mais
+  num MacBook M4.
+
+No artigo do ResNet (26 perguntas, sem LLM), o trecho que responde à pergunta passou a aparecer no
+top-4 em 78 de 84 casos, contra 69 só com a busca (dois parsers × dois embeddings), e em primeiro
+lugar em 54, contra 36. Um modelo maior (`jina-reranker-v2`) acertou 2 a mais, mas leva o dobro do
+tempo e proíbe uso comercial. A comparação está em
+[`docs/architecture.md`](docs/architecture.md#reranker-cross-encoder).
+
+Na geração com o `qwen2.5:1.5b-instruct`, a resposta passou a citar o trecho certo em 57 de 84
+casos, contra 45. Das 79 respostas (de 104) que mudaram, 22 melhoraram e 15 pioraram; boa parte
+das perdas é o modelo pequeno lendo a coluna errada da tabela mesmo com o trecho certo.
 
 ## Embeddings semânticos
 

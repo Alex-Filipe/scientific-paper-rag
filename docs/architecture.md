@@ -8,11 +8,12 @@ Monólito modular em Python. O pipeline usa os pacotes mantidos do ecossistema L
 
 ```text
 ingestão:  arquivo -> PaperLoader (pypdf | Docling) -> RecursiveCharacterTextSplitter -> embeddings -> Chroma
-pergunta:  LangGraph (retrieve -> grade -> [rewrite -> retrieve] -> generate -> validate | abstain)
+pergunta:  LangGraph (retrieve -> [rerank] -> grade -> [rewrite -> retrieve] -> generate -> validate | abstain)
 ```
 
 Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve -> generate`); a
-[avaliação da geração](#avaliação-da-geração) explica por quê.
+[avaliação da geração](#avaliação-da-geração) explica por quê. O `rerank` (cross-encoder) é
+opcional e só entra no grafo quando ligado ([Reranker](#reranker-cross-encoder)).
 
 ## Módulos
 
@@ -23,6 +24,7 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 | `embeddings.py` | `HashingEmbeddings` (baseline sem download) e `FastEmbedEmbeddings` (semântico, CPU) |
 | `vectorstore.py` | `ChunkIndex`: coleção Chroma persistente por espaço de embeddings |
 | `retrieval.py` | `BM25Retriever`, `RRFRetriever` e `HybridSearch` (BM25 + vetores via RRF) |
+| `rerank.py` | `CrossEncoderReranker`: reordena os candidatos da busca com um cross-encoder do FastEmbed (ONNX, extra `rerank`) |
 | `generation.py` | Prompts, fábrica de modelos de chat, validação de citações e modo extrativo |
 | `numbers.py` | Leitura de números (`4,49`/`4.49`, `50k`) usada pelo `validate` e pela tela, sem LangChain |
 | `graph.py` | Grafo LangGraph corretivo |
@@ -35,13 +37,17 @@ Por padrão `grade` e `rewrite` ficam desligados e o fluxo é linear (`retrieve 
 ## Grafo LangGraph
 
 ```text
-START -> retrieve -> grade --(há trechos úteis)--> generate --(resposta do LLM)--> validate -> END
-                       |                                \--(extrativo ou abstenção)--> END
-                       |--(nenhum útil e ainda pode reescrever)--> rewrite -> retrieve
-                       \--(nenhum útil)--> abstain -> END
+START -> retrieve -> [rerank] -> grade --(há trechos úteis)--> generate --(resposta do LLM)--> validate -> END
+                                   |                                \--(extrativo ou abstenção)--> END
+                                   |--(nenhum útil e ainda pode reescrever)--> rewrite -> retrieve
+                                   \--(nenhum útil)--> abstain -> END
 ```
 
 - **retrieve:** busca híbrida com `RAG_CANDIDATE_K` candidatos por ranker e corte final em `top_k`.
+  Com o reranker ligado, devolve os `RAG_CANDIDATE_K` primeiros da fusão, sem cortar.
+- **rerank:** só existe com `RAG_RERANK=true`. Um cross-encoder dá uma nota a cada par (pergunta
+  original, trecho) e mantém os `top_k` de nota mais alta. O passo diz de que posições da busca
+  vieram os trechos que ficaram; cada citação guarda `search_rank` e `rerank_score`.
 - **grade:** o LLM julga cada trecho separadamente (`sim`/`não`, uma chamada por trecho). Resposta
   ilegível mantém o trecho. Opcional: `RAG_GRADE_DOCUMENTS=true` (padrão `false`; sem LLM é sempre
   pulado), ou `grade_documents` numa pergunta da API.
@@ -106,6 +112,11 @@ das citações: o cliente deve substituir o texto parcial pelo do evento `answer
 13. **Bibliografia fora do índice (com seções):** as referências não respondem perguntas sobre o
     conteúdo e tiravam vagas do top-k. Só o Docling sabe onde ela começa; `RAG_INDEX_REFERENCES`
     a mantém.
+14. **Reranker opcional, como nó próprio:** o cross-encoder pré-treinado melhora a busca em todas
+    as combinações de parser e embedding, mas baixa um modelo de 471 MB e soma cerca de 1 s por
+    pergunta. Fica desligado por padrão, como o embedding semântico e o Docling, e vira o nó
+    `rerank` quando ligado, para aparecer como passo na tela. Um LLM como reranker e um modelo
+    treinado por nós foram descartados (ver [Reranker](#reranker-cross-encoder)).
 
 ## Teste com artigo real
 
@@ -268,6 +279,10 @@ chat:          POST /questions/stream -> step (st.status) -> token (st.write_str
   caracteres e muitas vezes não chega ao número citado), não o PDF. Numa resposta aceita, os
   números que ela acrescenta à pergunta, os mesmos que o `validate` procurou, aparecem grifados
   em todos os trechos (`numbers.claimed_readings`, com as mesmas leituras `4,49`/`4.49`).
+  Abaixo de cada trecho vem a posição na busca e a nota RRF; com o reranker, a posição depois de
+  reordenar, a posição na busca e a nota do cross-encoder ("posição 2 após reordenar (4ª na
+  busca) · nota 4,26"). Com o reranker, a barra lateral mostra o modelo e o passo "Reordenação"
+  entra na caixa dos passos.
 - **Compatibilidade:** o cliente ignora campos que não conhece e transforma payloads inesperados
   em `ApiError`, para que uma API mais nova não derrube a tela com um traceback.
 - **Recarga de módulos:** quando um arquivo muda, o Streamlit descarrega os módulos da pasta da
@@ -382,6 +397,107 @@ saldo de +8 é indicativo, não conclusivo. Os números absolutos não são comp
 - Palavras com hífen quebradas no fim da linha perdem o hífen (`highlevel`).
 - Rótulos de figura às vezes grudam em parágrafos vizinhos (`iter. (1e4)`).
 
+## Reranker (cross-encoder)
+
+A busca híbrida ordena os trechos fundindo duas listas (BM25 e vetores) sem nunca ler a pergunta
+e o trecho juntos. Um cross-encoder lê os dois numa única passada do modelo e dá uma nota ao par.
+Com `RAG_RERANK=true`, o `retrieve` passa os 20 primeiros candidatos da fusão
+(`RAG_CANDIDATE_K`) e o nó `rerank` mantém os `top_k` de nota mais alta.
+
+```bash
+python -m pip install -e ".[rerank]"
+RAG_RERANK=true paper-rag ask "Qual é o erro top-5 do ResNet-152?" --show-steps
+```
+
+- **FastEmbed, sem PyTorch:** o `TextCrossEncoder` do FastEmbed roda o modelo em ONNX na CPU; é a
+  mesma biblioteca do embedding semântico. O modelo baixa na primeira pergunta para
+  `RAG_MODEL_CACHE_DIR` (`.data/models`).
+- **Modelo:** `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (Apache 2.0), um MiniLM multilíngue
+  treinado no mMARCO, a versão traduzida do MS MARCO em 14 idiomas, inclusive português. Ele não
+  está na lista do FastEmbed e é registrado com `add_custom_model` na primeira carga.
+  `RAG_RERANK_MODEL` troca o modelo (por exemplo, `jinaai/jina-reranker-v2-base-multilingual`).
+- **Texto da nota:** o cross-encoder recebe a pergunta original, não a consulta reescrita, porque
+  a resposta tem de atender à pergunta. Empates mantêm a ordem da busca.
+- **Testes sem download:** os testes trocam o modelo por um cross-encoder falso (uma nota por
+  palavra da pergunta encontrada no trecho); o CI não instala o extra nem baixa modelo.
+
+**Escolha do modelo** (sem LLM, script avulso fora do repositório, MacBook M4): as 26 perguntas do
+dataset de geração sobre o ResNet; um trecho é gabarito quando contém uma das citações esperadas.
+Para cada pergunta, os mesmos 20 candidatos da busca híbrida foram reordenados por três modelos:
+um pequeno só em inglês, o mmarco e o maior multilíngue que o FastEmbed oferece.
+
+| Gabarito no top-4 (de 21) / MRR@4 | só a busca | MiniLM-L6 (inglês) | mmarco (multilíngue) | jina v2 (multilíngue) |
+|---|---|---|---|---|
+| `pypdf`, hashing | 17 / 0,58 | 18 / 0,69 | 19 / 0,74 | 20 / 0,80 |
+| `pypdf`, semantic | 17 / 0,64 | 20 / 0,75 | 20 / 0,77 | 21 / 0,85 |
+| Docling, hashing | 17 / 0,56 | 19 / 0,68 | 20 / 0,77 | 20 / 0,78 |
+| Docling, semantic | 18 / 0,58 | 20 / 0,69 | 19 / 0,76 | 19 / 0,77 |
+| **Soma no top-4 (de 84)** | 69 | 77 | 78 | 80 |
+| Gabarito em 1º lugar (de 84) | 36 | 47 | 54 | 57 |
+| Entrou / saiu do top-4 | | 12 / 4 | 13 / 4 | 14 / 3 |
+| Tempo extra por pergunta (20 pares) | | 0,5 a 0,65 s | 0,9 a 1,2 s | 2,0 a 2,5 s |
+| Download / licença | | 91 MB / Apache 2.0 | 471 MB / Apache 2.0 | 1,1 GB / CC-BY-NC-4.0 |
+
+- **O ganho vem de ligar um reranker, qualquer um:** os três melhoram as quatro combinações. O
+  gabarito no top-4 vai de 69 para 77 a 80 (o máximo possível era 83, porque numa pergunta o
+  gabarito não está entre os 20 candidatos) e o MRR@4 médio, de 0,59 para 0,70 a 0,80. Entre os
+  modelos, a diferença é de 1 a 3 perguntas em 84.
+- **As perdas são quase todas em português:** "O que é a opção B de atalhos no artigo?" com
+  Docling caiu da posição 2 ou 3 para 11 a 17, e o modelo só em inglês jogou a pergunta sobre a
+  taxa de aprendizado da posição 1 para a 14. Nas 6 perguntas em português (24 casos), o
+  gabarito no top-4 fica em 18 só com a busca, 17 com o MiniLM, 18 com o mmarco e 20 com o jina:
+  o ganho vem das perguntas em inglês, e o mmarco só empata com a busca em português.
+- **Por que o mmarco:** fica perto do jina (78 × 80 no top-4, 0,76 × 0,80 de MRR), custa metade
+  do tempo e um terço do download, e tem licença Apache. O jina proíbe uso comercial
+  (CC-BY-NC-4.0). O MiniLM em inglês é o mais rápido, mas é o que mais erra em português.
+  `BAAI/bge-reranker-base`, também do FastEmbed, cobre só inglês e chinês e ficou de fora.
+- **Nota mínima para se abster:** testei se a maior nota do reranker separa as perguntas sem
+  resposta das demais. Não separa: em nenhum modelo um limiar exclui mais de 1 das 5 sem resposta
+  sem excluir também perguntas com resposta. O reranker só reordena; abster continua com o `grade`.
+- **Gates do CI com o reranker** (fora do CI, que não baixa modelo): baseline e paráfrases ficam
+  em 1,000 / 1,000 (Recall@3 / MRR) com hashing e semantic; nas paráfrases com hashing, a busca
+  sem reranker fica em 0,800 / 0,567.
+
+**Geração** (`paper-rag evaluate-generation`, fluxo linear, `qwen2.5:1.5b-instruct`, cache do
+Ollama limpo, uma rodada, 26 perguntas; `.data/evaluation/rerank-*.jsonl` comparado com os
+`parser-*.jsonl` da etapa do Docling, que têm a mesma configuração sem reranker). Vereditos
+lexicais, antes → depois:
+
+| | `pypdf` hashing | `pypdf` semantic | Docling hashing | Docling semantic |
+|---|---|---|---|---|
+| Corretas / parciais (de 21) | 11 / 0 → 9 / 1 | 8 / 0 → 10 / 1 | 12 / 0 → 14 / 0 | 13 / 1 → 14 / 0 |
+| Erradas com citação válida | 8 → 9 | 9 → 9 | 7 → 6 | 7 → 6 |
+| `fallback` | 2 → 2 | 4 → 1 | 2 → 1 | 0 → 1 |
+| Sem resposta: abstém ou `fallback` / inventa (de 5) | 1 / 4 → 1 / 4 | 1 / 4 → 1 / 4 | 3 / 2 → 1 / 4 | 1 / 4 → 1 / 4 |
+| Gabarito no top-4 | 17 → 19 | 17 → 20 | 17 → 20 | 18 → 19 |
+| Citou um trecho-gabarito | 12 → 13 | 9 → 14 | 12 → 15 | 12 → 15 |
+| Latência média | 2,7 → 3,6 s | 3,4 → 4,3 s | 3,0 → 4,1 s | 3,2 → 4,6 s |
+
+Como a ordem dos trechos no prompt muda, 79 das 104 respostas mudaram de texto. Revisei todas à
+mão: **22 melhoraram, 15 pioraram e 42 ficaram equivalentes** (5 / 6, 6 / 3, 4 / 3 e 7 / 3 nas
+quatro colunas, na mesma ordem). Os vereditos lexicais erram em alguns casos, nos dois sentidos:
+"atalhos com gatilhos" é a resposta certa sobre as highway networks, e "Evidências [1]: Não
+encontrei evidências…" é uma abstenção, embora tenha passado pelo `validate` como resposta.
+
+- **Ganhos:** perguntas de tabela (o 27,2 de mAP do COCO nos dois embeddings com `pypdf`, os 11,3
+  bilhões de FLOPs, o 6,43% com 1,7 milhão de parâmetros), o tamanho do CIFAR-10 e a taxa de
+  aprendizado em português, perguntas sobre degradação que passaram a citar o erro de treino em
+  vez de overfitting, e duas invenções a menos nas perguntas sem resposta (um BLEU e uma acurácia
+  no MNIST).
+- **Perdas:** o modelo agora recebe a Tabela 2 em primeiro lugar e lê a coluna errada da linha
+  `34 layers 28.54 25.03` (25,03% em vez de 28,54%, em 3 das 4 colunas); o erro do ensemble virou
+  7,40%; duas perguntas sem resposta que davam `fallback` passaram a inventar um número.
+- **Repetição do prompt:** em 3 respostas com `pypdf` o modelo devolveu as próprias instruções
+  ("Responda no idioma da pergunta…"), e o `validate` as aceitou, porque elas contêm `[1]`. Isso
+  não tinha acontecido em nenhuma rodada anterior.
+- **Custo:** cerca de 1 s a mais por pergunta (de 0,8 a 1,4 s), ou 30 a 45%.
+
+O reranker melhora o que o gerador recebe: o trecho-gabarito vai para o top-4 em 78 de 84 casos
+(eram 69) e a resposta cita um trecho-gabarito em 57 (eram 45). A resposta melhora menos, com
+saldo de +7 em 79 respostas que mudaram, porque o gerador de 1,5B continua errando a linha ou a
+coluna da tabela mesmo com o trecho certo em `[1]`. Com 26 perguntas de um artigo só, o saldo é
+indicativo, não conclusivo.
+
 ## Comparação com a versão manual (`v0.1.0-manual`)
 
 Mesmos datasets, `top_k=3`:
@@ -399,7 +515,10 @@ medir qualidade em artigos reais.
 
 ## Próximas melhorias planejadas
 
-1. Reranker entre a busca e o grafo.
-2. Observabilidade de latência, erros e tokens por consulta.
-3. Leitura de PDF: ordem da primeira página e expoentes com o Docling (ver
+1. Observabilidade de latência, erros e tokens por consulta.
+2. Leitura de PDF: ordem da primeira página e expoentes com o Docling (ver
    [limitações](#leitura-de-pdf-docling)).
+3. Reranker: medir a versão quantizada do mmarco (119 MB, só ARM) e, com um dataset maior,
+   ajustar um reranker para artigos científicos.
+4. `validate`: recusar a resposta que repete as instruções do prompt (visto 3 vezes com o
+   reranker; hoje passa porque as instruções contêm `[1]`).
