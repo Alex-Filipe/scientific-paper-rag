@@ -5,10 +5,19 @@ página), construído com **LangChain** e orquestrado por um grafo **LangGraph**
 tela de chat em **Streamlit** sobre a API. O modo extrativo roda localmente sem Docker, serviço
 externo ou chave de API; a síntese com LLM é opcional.
 
+![Tela Streamlit: pergunta sobre o artigo do ResNet, passos do grafo, resposta com citação e fonte com página](docs/assets/demo.gif)
+
+*Pergunta em português sobre o artigo do ResNet (CVPR 2016), com `qwen2.5:1.5b-instruct` no
+Ollama, Docling e reranker, gravada em tempo real num MacBook M4: os passos do grafo, a resposta
+citando `[1]` e a fonte com página, seção e o número grifado.*
+
 ```text
 ingestão: documento -> loader (pypdf ou Docling) -> text splitter -> embeddings -> Chroma
-pergunta: retrieve (BM25 + vetores, RRF) -> [rerank] -> grade -> [rewrite -> retrieve] -> generate | abstain
+pergunta: retrieve (BM25 + vetores, RRF) -> [rerank] -> [grade (-> rewrite -> retrieve | abstain)] -> generate -> validate
 ```
+
+Os nós entre colchetes são opcionais; por padrão o fluxo é linear: `retrieve -> generate`, mais o
+`validate` quando há LLM.
 
 | Etapa | Tecnologia |
 |---|---|
@@ -18,7 +27,7 @@ pergunta: retrieve (BM25 + vetores, RRF) -> [rerank] -> grade -> [rewrite -> ret
 | Busca | Híbrida: BM25+ e vetores fundidos por Reciprocal Rank Fusion |
 | Reordenação | Cross-encoder multilíngue pré-treinado (FastEmbed, ONNX), opcional |
 | Geração | `ChatOllama` (local) ou `ChatOpenAI` (Responses API), com citações validadas |
-| Orquestração | LangGraph: avalia evidência, reescreve a pergunta e se abstém quando necessário |
+| Orquestração | LangGraph: busca, geração e validação das citações e dos números; avaliação dos trechos e reescrita da pergunta opcionais |
 | Entrada | CLI (Typer), API FastAPI com streaming SSE e tela Streamlit |
 
 Detalhes e decisões em [`docs/architecture.md`](docs/architecture.md).
